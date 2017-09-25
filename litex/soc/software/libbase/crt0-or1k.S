@@ -19,7 +19,7 @@
 
 #include <spr-defs.h>
 
-#define EXCEPTION_STACK_SIZE (4*32)
+#define EXCEPTION_STACK_SIZE (8*32)
 
 #define HANDLE_EXCEPTION                    ; \
     l.addi  r1, r1, -EXCEPTION_STACK_SIZE   ; \
