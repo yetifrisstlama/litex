@@ -1,9 +1,13 @@
+import subprocess
 import unittest
 import os
 
 from migen import *
 
 from litex.soc.integration.builder import *
+
+
+RUNNING_ON_TRAVIS = (os.getenv('TRAVIS', 'false').lower() == 'true')
 
 
 def build_test(socs):
@@ -18,18 +22,20 @@ def build_test(socs):
 
 
 class TestTargets(unittest.TestCase):
-    # altera boards
+    # Altera boards
     def test_de0nano(self):
         from litex.boards.targets.de0nano import BaseSoC
         errors = build_test([BaseSoC()])
         self.assertEqual(errors, 0)
 
-    # xilinx boards
+    # Xilinx boards
+    # Spartan-6
     def test_minispartan6(self):
         from litex.boards.targets.minispartan6 import BaseSoC
         errors = build_test([BaseSoC()])
         self.assertEqual(errors, 0)
 
+    # Artix-7
     def test_arty(self):
         from litex.boards.targets.arty import BaseSoC, EthernetSoC
         errors = build_test([BaseSoC(), EthernetSoC()])
@@ -45,6 +51,7 @@ class TestTargets(unittest.TestCase):
         errors = build_test([BaseSoC(), EthernetSoC()])
         self.assertEqual(errors, 0)
 
+    # Kintex-7
     def test_genesys2(self):
         from litex.boards.targets.genesys2 import BaseSoC, EthernetSoC
         errors = build_test([BaseSoC(), EthernetSoC()])
@@ -55,8 +62,14 @@ class TestTargets(unittest.TestCase):
         errors = build_test([BaseSoC(), EthernetSoC()])
         self.assertEqual(errors, 0)
 
-    # lattice boards
+    # Kintex-Ultrascale
+    def test_kcu105(self):
+        from litex.boards.targets.kcu105 import BaseSoC
+        errors = build_test([BaseSoC()])
+        self.assertEqual(errors, 0)
 
+    # Lattice boards
+    # ECP5
     def test_versa_ecp5(self):
         from litex.boards.targets.versa_ecp5 import BaseSoC
         errors = build_test([BaseSoC()])
@@ -67,24 +80,76 @@ class TestTargets(unittest.TestCase):
         errors = build_test([BaseSoC()])
         self.assertEqual(errors, 0)
 
-    # build simple design for all platforms
+    # Build simple design for all platforms
     def test_simple(self):
-        platforms = [
-            "arty",
-            "de0nano",
-            "genesys2",
-            "kc705",
-            "kcu105",
-            "machxo3",
-            "minispartan6",
-            "nexys4ddr",
-            "nexys_video",
-            "tinyfpga_bx",
-            "versa_ecp3",
-            "versa_ecp5"
-        ]
+        platforms = []
+        # Xilinx
+        platforms += ["minispartan6", "sp605"]                     # Spartan6
+        platforms += ["arty", "nexys4ddr", "nexys_video", "ac701"] # Artix7
+        platforms += ["kc705", "genesys2"]                         # Kintex7
+        platforms += ["kcu105"]                                    # Kintex Ultrascale
+
+        # Altera
+        platforms += ["de0nano"]                                   # Cyclone4
+
+        # Lattice
+        platforms += ["tinyfpga_bx"]                               # iCE40
+        platforms += ["machxo3"]                                   # MachXO3
+        platforms += ["versa_ecp3"]                                # ECP3
+        platforms += ["versa_ecp5", "ulx3s"]                       # ECP5
+
+        # Microsemi
+        platforms += ["avalanche"]                                 # PolarFire
+
         for p in platforms:
-            os.system("litex_simple litex.boards.platforms." + p +
-                " --no-compile-software " +
-                " --no-compile-gateware " +
-                " --uart-stub=True")
+            with self.subTest(platform=p):
+                cmd = """\
+litex/boards/targets/simple.py litex.boards.platforms.{p} \
+    --cpu-type=vexriscv     \
+    --no-compile-software   \
+    --no-compile-gateware   \
+    --uart-stub=True        \
+""".format(p=p)
+                subprocess.check_call(cmd, shell=True)
+
+    def run_variants(self, cpu, variants):
+        for v in variants:
+            with self.subTest(cpu=cpu, variant=v):
+                self.run_variant(cpu, v)
+
+    def run_variant(self, cpu, variant):
+        cmd = """\
+litex/boards/targets/simple.py litex.boards.platforms.arty \
+    --cpu-type={c}          \
+    --cpu-variant={v}       \
+    --no-compile-software   \
+    --no-compile-gateware   \
+    --uart-stub=True        \
+""".format(c=cpu, v=variant)
+        subprocess.check_output(cmd, shell=True)
+
+    # Build some variants for the arty platform to make sure they work.
+    def test_variants_riscv(self):
+        cpu_variants = {
+            'picorv32': ('standard', 'minimal'),
+            'vexriscv': ('standard', 'minimal', 'lite', 'lite+debug', 'full+debug'),
+            'minerva': ('standard',),
+        }
+        for cpu, variants in cpu_variants.items():
+            self.run_variants(cpu, variants)
+
+    #def test_bad_variants(self):
+    #    with self.assertRaises(subprocess.CalledProcessError):
+    #        self.run_variant('vexriscv', 'bad')
+
+    #def test_bad_variant_extension(self):
+    #    with self.assertRaises(subprocess.CalledProcessError):
+    #        self.run_variant('vexriscv', 'standard+bad')
+
+    @unittest.skipIf(RUNNING_ON_TRAVIS, "No lm32 toolchain on Travis-CI")
+    def test_variants_lm32(self):
+        self.run_variants('lm32', ('standard', 'minimal', 'lite'))
+
+    @unittest.skipIf(RUNNING_ON_TRAVIS, "No or1k toolchain on Travis-CI")
+    def test_variants_or1k(self):
+        self.run_variants('or1k', ('standard', 'linux'))

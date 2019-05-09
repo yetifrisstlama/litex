@@ -3,8 +3,9 @@
 
 from litex.build.generic_platform import *
 from litex.build.xilinx import XilinxPlatform
-from litex.build.xilinx.programmer import XC3SProg, FpgaProg
+from litex.build.xilinx.programmer import FpgaProg
 
+# IOs ----------------------------------------------------------------------------------------------
 
 _io = [
     ("user_led", 0, Pins("P11"), IOStandard("LVCMOS33")),
@@ -99,6 +100,8 @@ _io = [
     )
 ]
 
+# Connectors ---------------------------------------------------------------------------------------
+
 _connectors = [
     ("A", "E7 C8 D8 E8 D9 A10 B10 C10 E10 F9 F10 D11"),
     ("B", "E11 D14 D12 E12 E13 F13 F12 F14 G12 H14 J14"),
@@ -108,20 +111,14 @@ _connectors = [
     ("F", "E2 E1 E4 F4 F5 G3 F3 G1 H3 H1 H2 J1")
 ]
 
+# Platform -----------------------------------------------------------------------------------------
 
 class Platform(XilinxPlatform):
     default_clk_name = "clk32"
     default_clk_period = 31.25
 
-    def __init__(self, device="xc6slx9", programmer="xc3sprog"):
-        self.programmer = programmer
+    def __init__(self, device="xc6slx25"):
         XilinxPlatform.__init__(self, device+"-3-ftg256", _io, _connectors)
 
     def create_programmer(self):
-        if self.programmer == "xc3sprog":
-            return XC3SProg("minispartan6", "bscan_spi_minispartan6.bit")
-        elif self.programmer == "fpgaprog":
-            return FpgaProg()
-        else:
-            raise ValueError("{} programmer is not supported".format(
-                self.programmer))
+        return FpgaProg()

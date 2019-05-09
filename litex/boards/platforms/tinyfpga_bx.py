@@ -2,6 +2,8 @@ from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
 from litex.build.lattice.programmer import TinyProgProgrammer
 
+# IOs ----------------------------------------------------------------------------------------------
+
 _io = [
     ("user_led", 0, Pins("B3"), IOStandard("LVCMOS33")),
 
@@ -30,6 +32,8 @@ _io = [
     ("clk16", 0, Pins("B2"), IOStandard("LVCMOS33"))
 ]
 
+# Connectors ---------------------------------------------------------------------------------------
+
 _connectors = [
     # A2-H2, Pins 1-13
     # H9-A6, Pins 14-24
@@ -37,7 +41,6 @@ _connectors = [
     ("GPIO", "A2 A1 B1 C2 C1 D2 D1 E2 E1 G2 H1 J1 H2 H9 D9 D8 C9 A9 B8 A8 B7 A7 B6 A6"),
     ("EXTRA", "G1 J3 J4 G9 J9 E8 J2")
 ]
-
 
 # Default peripherals
 serial = [
@@ -48,14 +51,14 @@ serial = [
     )
 ]
 
+# Platform -----------------------------------------------------------------------------------------
 
 class Platform(LatticePlatform):
     default_clk_name = "clk16"
     default_clk_period = 62.5
 
     def __init__(self):
-        LatticePlatform.__init__(self, "ice40-lp8k-cm81", _io, _connectors,
-                                 toolchain="icestorm")
+        LatticePlatform.__init__(self, "ice40-lp8k-cm81", _io, _connectors, toolchain="icestorm")
 
     def create_programmer(self):
         return TinyProgProgrammer()

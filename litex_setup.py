@@ -30,7 +30,7 @@ repos = OrderedDict(repos)
 if len(sys.argv) < 2:
     print("Available commands:")
     print("- init")
-    print("- install")
+    print("- install (add --user to install to user directory)")
     print("- update")
     exit()
 
@@ -50,7 +50,10 @@ if "install" in sys.argv[1:]:
         print("[installing " + name + "]...")
         if need_develop:
             os.chdir(os.path.join(current_path, name))
-            os.system("python3 setup.py develop")
+            if "--user" in sys.argv[1:]:
+                os.system("python3 setup.py develop --user")
+            else:
+                os.system("python3 setup.py develop")
 
 if "update" in sys.argv[1:]:
     for name in repos.keys():

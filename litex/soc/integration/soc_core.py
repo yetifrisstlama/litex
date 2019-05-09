@@ -1,10 +1,14 @@
+#!/usr/bin/env python3
 import os
 import struct
 import inspect
 import json
+import math
 from operator import itemgetter
 
 from migen import *
+
+from litex.build.tools import deprecated_warning
 
 from litex.soc.cores import identifier, timer, uart
 from litex.soc.cores.cpu import *
@@ -22,6 +26,42 @@ __all__ = [
 ]
 
 
+CPU_VARIANTS = {
+    # "official name": ["alias 1", "alias 2"],
+    "minimal" : ["min",],
+    "lite" : ["light", "zephyr", "nuttx"],
+    "standard": [None, "std"],
+    "full": [],
+    "linux" : [],
+}
+CPU_VARIANTS_EXTENSIONS = ["debug"]
+
+
+class InvalidCPUVariantError(ValueError):
+    def __init__(self, variant):
+        msg = """\
+Invalid cpu_variant value: {}
+
+Possible Values:
+""".format(variant)
+        for k, v in CPU_VARIANTS.items():
+            msg += " - {} (aliases: {})\n".format(k, ", ".join(str(s) for s in v))
+        ValueError.__init__(self, msg)
+
+
+class InvalidCPUExtensionError(ValueError):
+    def __init__(self, variant):
+        msg = """\
+Invalid extension in cpu_variant value: {}
+
+Possible Values:
+""".format(variant)
+        for e in CPU_VARIANTS_EXTENSIONS:
+            msg += " - {}\n".format(e)
+        ValueError.__init__(self, msg)
+
+
+
 def version(with_time=True):
     import datetime
     import time
@@ -37,15 +77,19 @@ def mem_decoder(address, start=26, end=29):
     return lambda a: a[start:end] == ((address >> (start+2)) & (2**(end-start))-1)
 
 
-def get_mem_data(filename, endianness="big", mem_size=None):
+def get_mem_data(filename_or_regions, endianness="big", mem_size=None):
     # create memory regions
-    _, ext = os.path.splitext(filename)
-    if ext == ".json":
-        f = open(filename, "r")
-        regions = json.load(f)
-        f.close()
+    if isinstance(filename_or_regions, dict):
+        regions = filename_or_regions
     else:
-        regions = {filename: "0x00000000"}
+        filename = filename_or_regions
+        _, ext = os.path.splitext(filename)
+        if ext == ".json":
+            f = open(filename, "r")
+            regions = json.load(f)
+            f.close()
+        else:
+            regions = {filename: "0x00000000"}
 
     # determine data_size
     data_size = 0
@@ -58,7 +102,7 @@ def get_mem_data(filename, endianness="big", mem_size=None):
              data_size, mem_size))
 
     # fill data
-    data = [0]*(data_size//4)
+    data = [0]*math.ceil(data_size/4)
     for filename, base in regions.items():
         with open(filename, "rb") as f:
             i = 0
@@ -67,14 +111,15 @@ def get_mem_data(filename, endianness="big", mem_size=None):
                 if not w:
                     break
                 if len(w) != 4:
-                    for i in range(len(w), 4):
+                    for _ in range(len(w), 4):
                         w += b'\x00'
                 if endianness == "little":
-                    data[i] = struct.unpack("<I", w)[0]
+                    data[int(base, 16)//4 + i] = struct.unpack("<I", w)[0]
                 else:
-                    data[i] = struct.unpack(">I", w)[0]
+                    data[int(base, 16)//4 + i] = struct.unpack(">I", w)[0]
                 i += 1
     return data
+
 
 class ReadOnlyDict(dict):
     def __readonly__(self, *args, **kwargs):
@@ -141,9 +186,9 @@ class SoCCore(Module):
         "csr":      0x60000000,  # (default shadow @0xe0000000)
     }
     def __init__(self, platform, clk_freq,
-                cpu_type="lm32", cpu_reset_address=0x00000000, cpu_variant=None,
+                cpu_type="vexriscv", cpu_reset_address=0x00000000, cpu_variant=None,
                 integrated_rom_size=0, integrated_rom_init=[],
-                integrated_sram_size=4096,
+                integrated_sram_size=4096, integrated_sram_init=[],
                 integrated_main_ram_size=0, integrated_main_ram_init=[],
                 shadow_base=0x80000000,
                 csr_data_width=8, csr_address_width=14, csr_expose=False,
@@ -162,7 +207,27 @@ class SoCCore(Module):
         if cpu_type == "None":
             cpu_type = None
         self.cpu_type = cpu_type
-        self.cpu_variant = cpu_variant
+
+        # Support the old style which used underscore for separator
+        if cpu_variant is None:
+            cpu_variant = "standard"
+        cpu_variant = cpu_variant.replace('_', '+')
+        # Check for valid CPU variants.
+        cpu_variant_processor, *cpu_variant_ext = cpu_variant.split('+')
+        for key, values in CPU_VARIANTS.items():
+            if cpu_variant_processor not in [key,]+values:
+                continue
+            self.cpu_variant = key
+            break
+        else:
+            raise InvalidCPUVariantError(cpu_variant)
+
+        # Check for valid CPU extensions.
+        for ext in sorted(cpu_variant_ext):
+            if ext not in CPU_VARIANTS_EXTENSIONS:
+                raise InvalidCPUExtensionError(cpu_variant)
+            self.cpu_variant += "+"+ext
+
         if integrated_rom_size:
             cpu_reset_address = self.mem_map["rom"]
         self.cpu_reset_address = cpu_reset_address
@@ -201,7 +266,9 @@ class SoCCore(Module):
         if cpu_type is not None:
             if cpu_type == "lm32":
                 self.add_cpu(lm32.LM32(platform, self.cpu_reset_address, self.cpu_variant))
-            elif cpu_type == "or1k":
+            elif cpu_type == "mor1kx" or cpu_type == "or1k":
+                if cpu_type == "or1k":
+                    deprecated_warning("SoCCore's \"cpu-type\" to \"mor1kx\"")
                 self.add_cpu(mor1kx.MOR1KX(platform, self.cpu_reset_address, self.cpu_variant))
             elif cpu_type == "picorv32":
                 self.add_cpu(picorv32.PicoRV32(platform, self.cpu_reset_address, self.cpu_variant))
@@ -224,7 +291,7 @@ class SoCCore(Module):
             self.register_rom(self.rom.bus, integrated_rom_size)
 
         if integrated_sram_size:
-            self.submodules.sram = wishbone.SRAM(integrated_sram_size)
+            self.submodules.sram = wishbone.SRAM(integrated_sram_size, init=integrated_sram_init)
             self.register_mem("sram", self.mem_map["sram"], self.sram.bus, integrated_sram_size)
 
         # Note: Main Ram can be used when no external SDRAM is available and use SDRAM mapping.
@@ -299,7 +366,7 @@ class SoCCore(Module):
         self.submodules.cpu = cpu
 
     def add_cpu_or_bridge(self, cpu_or_bridge):
-        print("[WARNING] Please update SoCCore's \"add_cpu_or_bridge\" call to \"add_cpu\"")
+        deprecated_warning("SoCCore's \"add_cpu_or_bridge\" call to \"add_cpu\"")
         self.add_cpu(cpu_or_bridge)
         self.cpu_or_bridge = self.cpu
 

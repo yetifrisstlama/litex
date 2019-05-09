@@ -1,7 +1,7 @@
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform, XC3SProg, VivadoProgrammer, iMPACT
-from litex.build.xilinx.ise import XilinxISEToolchain
+from litex.build.xilinx import XilinxPlatform, VivadoProgrammer
 
+# IOs ----------------------------------------------------------------------------------------------
 
 _io = [
     ("user_led", 0, Pins("AB8"), IOStandard("LVCMOS15")),
@@ -58,7 +58,8 @@ _io = [
         Subsignal("rts", Pins("K23")),
         Subsignal("tx", Pins("K24")),
         Subsignal("rx", Pins("M19")),
-        IOStandard("LVCMOS25")),
+        IOStandard("LVCMOS25")
+    ),
 
     ("spiflash", 0,  # clock needs to be accessed through STARTUPE2
         Subsignal("cs_n", Pins("U19")),
@@ -284,6 +285,7 @@ _io = [
     ),
 ]
 
+# Connectors ---------------------------------------------------------------------------------------
 
 _connectors = [
     ("HPC", {
@@ -303,10 +305,10 @@ _connectors = [
         "DP0_C2M_N": "D1",
         "DP0_M2C_P": "E4",
         "DP0_M2C_N": "E3",
-        "LA06_P": "H30",
-        "LA06_N": "G30",
-        "LA10_P": "D29",
-        "LA10_N": "C30",
+        "LA06_P"   : "H30",
+        "LA06_N"   : "G30",
+        "LA10_P"   : "D29",
+        "LA10_N"   : "C30",
         "LA14_P": "B28",
         "LA14_N": "A28",
         "LA18_CC_P": "F21",
@@ -521,50 +523,36 @@ _connectors = [
     ),
 ]
 
+# Platform -----------------------------------------------------------------------------------------
 
 class Platform(XilinxPlatform):
     default_clk_name = "clk156"
     default_clk_period = 6.4
 
-    def __init__(self, toolchain="vivado", programmer="vivado"):
-        XilinxPlatform.__init__(self, "xc7k325t-ffg900-2", _io, _connectors,
-            toolchain=toolchain)
-        if toolchain == "ise":
-            self.toolchain.bitgen_opt = "-g LCK_cycle:6 -g Binary:Yes -w -g ConfigRate:12 -g SPI_buswidth:4"
-        elif toolchain == "vivado":
-            self.add_platform_command("""
+    def __init__(self):
+        XilinxPlatform.__init__(self, "xc7k325t-ffg900-2", _io, _connectors, toolchain="vivado")
+        self.add_platform_command("""
 set_property CFGBVS VCCO [current_design]
 set_property CONFIG_VOLTAGE 2.5 [current_design]
 """)
-            self.toolchain.bitstream_commands = ["set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]"]
-            self.toolchain.additional_commands = ["write_cfgmem -force -format bin -interface spix4 -size 16 -loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
-        self.programmer = programmer
+        self.toolchain.bitstream_commands = ["set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]"]
+        self.toolchain.additional_commands = ["write_cfgmem -force -format bin -interface spix4 -size 16 -loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
 
     def create_programmer(self):
-        if self.programmer == "xc3sprog":
-            return XC3SProg("jtaghs1_fast", "bscan_spi_kc705.bit")
-        elif self.programmer == "vivado":
-            return VivadoProgrammer()
-        elif self.programmer == "impact":
-            return iMPACT()
-        else:
-            raise ValueError("{} programmer is not supported".format(programmer))
+        return VivadoProgrammer()
 
     def do_finalize(self, fragment):
         XilinxPlatform.do_finalize(self, fragment)
         try:
-            self.add_period_constraint(self.lookup_request("clk200").p, 5.0)
+            self.add_period_constraint(self.lookup_request("clk200").p, 1e9/200e6)
         except ConstraintError:
             pass
         try:
-            self.add_period_constraint(self.lookup_request("eth_clocks").rx, 8.0)
+            self.add_period_constraint(self.lookup_request("eth_clocks").rx, 1e9/125e6)
         except ConstraintError:
             pass
         try:
-            self.add_period_constraint(self.lookup_request("eth_clocks").tx, 8.0)
+            self.add_period_constraint(self.lookup_request("eth_clocks").tx, 1e9/125e6)
         except ConstraintError:
             pass
-        if isinstance(self.toolchain, XilinxISEToolchain):
-            self.add_platform_command("CONFIG DCI_CASCADE = \"33 32 34\";")
-        else:
-            self.add_platform_command("set_property DCI_CASCADE {{32 34}} [get_iobanks 33]")
+        self.add_platform_command("set_property DCI_CASCADE {{32 34}} [get_iobanks 33]")

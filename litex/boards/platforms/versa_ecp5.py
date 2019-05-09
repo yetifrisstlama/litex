@@ -5,6 +5,7 @@ from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
 from litex.build.lattice.programmer import LatticeProgrammer
 
+# IOs ----------------------------------------------------------------------------------------------
 
 _io = [
     ("clk100", 0, Pins("P3"), IOStandard("LVDS")),
@@ -127,6 +128,7 @@ _ecp5_soc_hat_io = [
     ),
 ]
 
+# Connectors ---------------------------------------------------------------------------------------
 
 _connectors = [
    ("X3",
@@ -174,6 +176,7 @@ _connectors = [
     ),
 ]
 
+# Platform -----------------------------------------------------------------------------------------
 
 class Platform(LatticePlatform):
     default_clk_name = "clk100"
@@ -184,11 +187,11 @@ class Platform(LatticePlatform):
 
     def do_finalize(self, fragment):
         try:
-            self.add_period_constraint(self.lookup_request("eth_clocks", 0).rx, 8.0)
+            self.add_period_constraint(self.lookup_request("eth_clocks", 0).rx, 1e9/125e6)
         except ConstraintError:
             pass
         try:
-            self.add_period_constraint(self.lookup_request("eth_clocks", 1).rx, 8.0)
+            self.add_period_constraint(self.lookup_request("eth_clocks", 1).rx, 1e9/125e6)
         except ConstraintError:
             pass
 

@@ -7,8 +7,8 @@ import socket
 import time
 import threading
 
-from litex.soc.tools.remote.etherbone import EtherbonePacket, EtherboneRecord, EtherboneWrites
-from litex.soc.tools.remote.etherbone import EtherboneIPC
+from litex.tools.remote.etherbone import EtherbonePacket, EtherboneRecord, EtherboneWrites
+from litex.tools.remote.etherbone import EtherboneIPC
 
 
 class RemoteServer(EtherboneIPC):
@@ -21,8 +21,13 @@ class RemoteServer(EtherboneIPC):
     def open(self):
         if hasattr(self, "socket"):
             return
+        socket_flags = 0
+        if hasattr(socket, "SO_REUSEADDR"):
+            socket_flags = socket_flags | socket.SO_REUSEADDR
+        if hasattr(socket, "SO_REUSEPORT"):
+            socket_flags = socket_flags | socket.SO_REUSEPORT
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket_flags, 1)
         self.socket.bind((self.bind_ip, self.bind_port))
         print("tcp port: {:d}".format(self.bind_port))
         self.socket.listen(1)
@@ -122,11 +127,21 @@ def main():
                         help="Select PCIe interface")
     parser.add_argument("--pcie-bar", default=None,
                         help="Set PCIe BAR")
+
+    # USB arguments
+    parser.add_argument("--usb", action="store_true",
+                        help="Select USB interface")
+    parser.add_argument("--usb-vid", default=None,
+                        help="Set USB vendor ID")
+    parser.add_argument("--usb-pid", default=None,
+                        help="Set USB product ID")
+    parser.add_argument("--usb-max-retries", default=10,
+                        help="Number of times to try reconnecting to USB")
     args = parser.parse_args()
 
 
     if args.uart:
-        from litex.soc.tools.remote import CommUART
+        from litex.tools.remote.comm_uart import CommUART
         if args.uart_port is None:
             print("Need to specify --uart-port, exiting.")
             exit()
@@ -135,19 +150,32 @@ def main():
         print("[CommUART] port: {} / baudrate: {} / ".format(uart_port, uart_baudrate), end="")
         comm = CommUART(uart_port, uart_baudrate)
     elif args.udp:
-        from litex.soc.tools.remote import CommUDP
+        from litex.tools.remote.comm_udp import CommUDP
         udp_ip = args.udp_ip
         udp_port = int(args.udp_port)
         print("[CommUDP] ip: {} / port: {} / ".format(udp_ip, udp_port), end="")
         comm = CommUDP(udp_ip, udp_port)
     elif args.pcie:
-        from litex.soc.tools.remote import CommPCIe
+        from litex.tools.remote.comm_pcie import CommPCIe
         pcie_bar = args.pcie_bar
         if args.pcie_bar is None:
             print("Need to speficy --pcie-bar, exiting.")
             exit()
         print("[CommPCIe] bar: {} / ".format(args.pcie_bar), end="")
         comm = CommPCIe(args.pcie_bar)
+    elif args.usb:
+        from litex.tools.remote.comm_usb import CommUSB
+        if args.usb_pid is None and args.usb_vid is None:
+            print("Need to speficy --usb-vid or --usb-pid, exiting.")
+            exit()
+        print("[CommUSB] vid: {} / pid: {} / ".format(args.usb_vid, args.usb_pid), end="")
+        pid = args.usb_pid
+        if pid is not None:
+            pid = int(pid, base=0)
+        vid = args.usb_vid
+        if vid is not None:
+            vid = int(vid, base=0)
+        comm = CommUSB(vid=vid, pid=pid, max_retries=args.usb_max_retries)
     else:
         parser.print_help()
         exit()

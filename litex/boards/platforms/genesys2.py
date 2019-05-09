@@ -1,6 +1,7 @@
 from litex.build.generic_platform import *
 from litex.build.xilinx import XilinxPlatform, VivadoProgrammer
 
+# IOs ----------------------------------------------------------------------------------------------
 
 _io = [
     ("user_led", 0, Pins("T28"), IOStandard("LVCMOS33")),
@@ -88,6 +89,7 @@ _io = [
     ),
 ]
 
+# Connectors ---------------------------------------------------------------------------------------
 
 _connectors = [
     ("HPC", {
@@ -101,23 +103,21 @@ _connectors = [
     ),
 ]
 
+# Platform -----------------------------------------------------------------------------------------
+
 class Platform(XilinxPlatform):
     default_clk_name = "clk200"
     default_clk_period = 5
 
-    def __init__(self, programmer="vivado"):
+    def __init__(self):
         XilinxPlatform.__init__(self, "xc7k325t-ffg900-2", _io, _connectors, toolchain="vivado")
-        self.programmer = programmer
 
     def create_programmer(self):
-        if self.programmer == "vivado":
-            return VivadoProgrammer()
-        else:
-            raise ValueError("{} programmer is not supported".format(programmer))
+        return VivadoProgrammer()
 
     def do_finalize(self, fragment):
         XilinxPlatform.do_finalize(self, fragment)
         try:
-            self.add_period_constraint(self.lookup_request("eth_clocks").rx, 8.0)
+            self.add_period_constraint(self.lookup_request("eth_clocks").rx, 1e9/125e6)
         except ConstraintError:
             pass

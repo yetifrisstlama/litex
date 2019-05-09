@@ -8,6 +8,8 @@ from migen.fhdl.tools import *
 from migen.fhdl.namer import build_namespace
 from migen.fhdl.conv_output import ConvOutput
 
+from litex.build.tools import generated_banner
+
 
 _reserved_keywords = {
     "always", "and", "assign", "automatic", "begin", "buf", "bufif0", "bufif1",
@@ -402,7 +404,7 @@ def convert(f, ios=None, name="top",
     ns.clock_domains = f.clock_domains
     r.ns = ns
 
-    src = "/* Machine-generated using LiteX gen */\n"
+    src = generated_banner("//")
     src += _printheader(f, ios, name, ns, attr_translate,
                         reg_initialization=reg_initialization)
     if regular_comb:

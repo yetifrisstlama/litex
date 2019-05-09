@@ -5,6 +5,8 @@ from migen import *
 
 from litex.soc.interconnect.csr import CSRStatus
 
+from litex.build.tools import generated_banner
+
 def get_cpu_mak(cpu):
     # select between clang and gcc
     clang = os.getenv("CLANG", "")
@@ -18,9 +20,9 @@ def get_cpu_mak(cpu):
         else:
             clang = False
     else:
-        # Default to clang unless told otherwise
+        # Default to gcc unless told otherwise
         if clang is None:
-            clang = True
+            clang = False
     assert isinstance(clang, bool)
     if clang:
         triple = cpu.clang_triple
@@ -69,7 +71,8 @@ def get_linker_regions(regions):
 
 
 def get_mem_header(regions, flash_boot_address):
-    r = "#ifndef __GENERATED_MEM_H\n#define __GENERATED_MEM_H\n\n"
+    r = generated_banner("//")
+    r += "#ifndef __GENERATED_MEM_H\n#define __GENERATED_MEM_H\n\n"
     for name, base, size in regions:
         r += "#define {name}_BASE 0x{base:08x}\n#define {name}_SIZE 0x{size:08x}\n\n".format(name=name.upper(), base=base, size=size)
     if flash_boot_address is not None:
@@ -120,7 +123,8 @@ def _get_rw_functions_c(reg_name, reg_base, nwords, busword, read_only, with_acc
 
 
 def get_csr_header(regions, constants, with_access_functions=True, with_shadow_base=True, shadow_base=0x80000000):
-    r = "#ifndef __GENERATED_CSR_H\n#define __GENERATED_CSR_H\n"
+    r = generated_banner("//")
+    r += "#ifndef __GENERATED_CSR_H\n#define __GENERATED_CSR_H\n"
     if with_access_functions:
         r += "#include <stdint.h>\n"
         r += "#ifdef CSR_ACCESSORS_DEFINED\n"
@@ -168,7 +172,7 @@ def get_csr_header(regions, constants, with_access_functions=True, with_shadow_b
 
 
 def get_csr_csv(csr_regions=None, constants=None, memory_regions=None):
-    r = ""
+    r = generated_banner("#")
 
     if csr_regions is not None:
         for name, origin, busword, obj in csr_regions:

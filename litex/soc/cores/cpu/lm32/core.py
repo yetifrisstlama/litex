@@ -4,16 +4,39 @@ from migen import *
 
 from litex.soc.interconnect import wishbone
 
+CPU_VARIANTS = ["minimal", "lite", "standard"]
+
 
 class LM32(Module):
-    name = "lm32"
-    endianness = "big"
-    gcc_triple = "lm32-elf"
-    gcc_flags = "-mbarrel-shift-enabled -mmultiply-enabled -mdivide-enabled -msign-extend-enabled"
-    linker_output_format = "elf32-lm32"
+    @property
+    def name(self):
+        return "lm32"
 
-    def __init__(self, platform, eba_reset, variant=None):
-        assert variant in (None, "lite", "minimal"), "Unsupported variant %s" % variant
+    @property
+    def endianness(self):
+        return "big"
+
+    @property
+    def gcc_triple(self):
+        return "lm32-elf"
+
+    @property
+    def gcc_flags(self):
+        flags =  "-mbarrel-shift-enabled "
+        flags += "-mmultiply-enabled "
+        flags += "-mdivide-enabled "
+        flags += "-msign-extend-enabled "
+        flags += "-D__lm32__ "
+        return flags
+
+    @property
+    def linker_output_format(self):
+        return "elf32-lm32"
+
+    def __init__(self, platform, eba_reset, variant="standard"):
+        assert variant in CPU_VARIANTS, "Unsupported variant %s" % variant
+        self.platform = platform
+        self.variant = variant
         self.reset = Signal()
         self.ibus = i = wishbone.Interface()
         self.dbus = d = wishbone.Interface()
@@ -66,7 +89,7 @@ class LM32(Module):
         self.add_sources(platform, variant)
 
     @staticmethod
-    def add_sources(platform, variant=None):
+    def add_sources(platform, variant):
         vdir = os.path.join(
             os.path.abspath(os.path.dirname(__file__)), "verilog")
         platform.add_sources(os.path.join(vdir, "submodule", "rtl"),
@@ -93,5 +116,7 @@ class LM32(Module):
             platform.add_verilog_include_path(os.path.join(vdir, "config_minimal"))
         elif variant == "lite":
             platform.add_verilog_include_path(os.path.join(vdir, "config_lite"))
-        else:
+        elif variant == "standard":
             platform.add_verilog_include_path(os.path.join(vdir, "config"))
+        else:
+            raise TypeError("Unknown variant {}".format(variant))
