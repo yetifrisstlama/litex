@@ -45,6 +45,14 @@ class PicoRV32(Module):
     def linker_output_format(self):
         return "elf32-littleriscv"
 
+    @property
+    def reserved_interrupts(self):
+        return {
+            "timer":                0,
+            "ebreak_ecall_illegal": 1,
+            "bus_error":            2
+        }
+
     def __init__(self, platform, progaddr_reset, variant="standard"):
         assert variant in CPU_VARIANTS, "Unsupported variant %s" % variant
         self.platform = platform
