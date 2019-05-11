@@ -73,6 +73,10 @@ class Platform(XilinxPlatform):
         # self.toolchain.additional_commands = \
         #     ["write_cfgmem -force -format bin -interface spix4 -size 16 "
         #      "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+        self.toolchain.additional_commands = [
+            # Generate .bit.bin file for loading with linux fpga_manager
+            'exec bootgen -image {build_name}.bif -arch zynq -process_bitstream bin'
+        ]
 
     def create_programmer(self, programmer="xc3sprog"):
         if programmer == "xc3sprog":
