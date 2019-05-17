@@ -27,13 +27,13 @@ _io = [
     ("user_sw", 7, Pins("M15"), IOStandard("LVCMOS18")),
 
     # push buttons (Bank 34)
-    ("user_btn",   0, Pins("D13"), IOStandard("LVCMOS18")),
-    ("user_btn",   1, Pins("C10"), IOStandard("LVCMOS18")),
-    ("user_btn_c", 0, Pins("P16"), IOStandard("LVCMOS18")),
-    ("user_btn_d", 0, Pins("R16"), IOStandard("LVCMOS18")),
-    ("user_btn_l", 0, Pins("N15"), IOStandard("LVCMOS18")),
-    ("user_btn_r", 0, Pins("R18"), IOStandard("LVCMOS18")),
-    ("user_btn_u", 0, Pins("T18"), IOStandard("LVCMOS18")),
+    # ("user_btn",   0, Pins("D13"), IOStandard("LVCMOS18")),
+    # ("user_btn",   1, Pins("C10"), IOStandard("LVCMOS18")),
+    ("user_btn_c", 0, Pins("P16"), IOStandard("LVCMOS25")),
+    ("user_btn_d", 0, Pins("R16"), IOStandard("LVCMOS25")),
+    ("user_btn_l", 0, Pins("N15"), IOStandard("LVCMOS25")),
+    ("user_btn_r", 0, Pins("R18"), IOStandard("LVCMOS25")),
+    ("user_btn_u", 0, Pins("T18"), IOStandard("LVCMOS25")),
 
     # Clock source (Bank 13)
     ("clk100", 0, Pins("Y9"), IOStandard("LVCMOS33"))
@@ -41,6 +41,9 @@ _io = [
 
 
 _connectors = [
+    # access a pin with `pmoda:N`, where N is:
+    #   N: 0  1  2  3  4  5  6  7
+    # Pin: 1  2  3  4  7  8  9 10
     # Bank 13
     ("pmoda", "Y11 AA11 Y10 AA9 AB11 AB10 AB9 AA8"),
     ("pmodb", "W12 W11 V10 W8 V12 W10 V9 V8"),
@@ -48,16 +51,99 @@ _connectors = [
     ("pmodd", "W7 V7 V4 V5 W5 W6 U5 U6"),
     ("XADC", {
         # Bank 34
-        "gio_0" : "H15",
-        "gio_1" : "R15",
-        "gio_2" : "K15",
-        "gio_3" : "J15",
+        "gio_0": "H15",
+        "gio_1": "R15",
+        "gio_2": "K15",
+        "gio_3": "J15",
         # Bank 35
-        "AD0N_R" : "E16",
-        "AD0P_R" : "F16",
-        "AD8N_N" : "D17",
-        "AD8P_R" : "D16"
+        "AD0N_R": "E16",
+        "AD0P_R": "F16",
+        "AD8N_N": "D17",
+        "AD8P_R": "D16"
     }),
+    ("LPC", {
+        # "DP0_C2M_N": "",  # NC
+        # "DP0_C2M_P": "",  # NC
+        # "DP0_M2C_N": "",  # NC
+        # "DP0_M2C_P": "",  # NC
+        # "GBTCLK0_M2C_N": "",  # NC
+        # "GBTCLK0_M2C_P": "",  # NC
+        "CLK0_M2C_N": "L19",
+        "CLK0_M2C_P": "L18",
+        "CLK1_M2C_N": "C19",
+        "CLK1_M2C_P": "D18",
+        "IIC_SCL_MAIN": "R7",
+        "IIC_SDA_MAIN": "U7",
+        "LA00_CC_N": "M20",
+        "LA00_CC_P": "M19",
+        "LA01_CC_N": "N20",
+        "LA01_CC_P": "N19",
+        "LA02_N": "P18",
+        "LA02_P": "P17",
+        "LA03_N": "P22",
+        "LA03_P": "N22",
+        "LA04_N": "M22",
+        "LA04_P": "M21",
+        "LA05_N": "K18",
+        "LA05_P": "J18",
+        "LA06_N": "L22",
+        "LA06_P": "L21",
+        "LA07_N": "T17",
+        "LA07_P": "T16",
+        "LA08_N": "J22",
+        "LA08_P": "J21",
+        "LA09_N": "R21",
+        "LA09_P": "R20",
+        "LA10_N": "T19",
+        "LA10_P": "R19",
+        "LA11_N": "N18",
+        "LA11_P": "N17",
+        "LA12_N": "P21",
+        "LA12_P": "P20",
+        "LA13_N": "M17",
+        "LA13_P": "L17",
+        "LA14_N": "K20",
+        "LA14_P": "K19",
+        "LA15_N": "J17",
+        "LA15_P": "J16",
+        "LA16_N": "K21",
+        "LA16_P": "J20",
+        "LA17_CC_N": "B20",
+        "LA17_CC_P": "B19",
+        "LA18_CC_N": "C20",
+        "LA18_CC_P": "D20",
+        "LA19_N": "G16",
+        "LA19_P": "G15",
+        "LA20_N": "G21",
+        "LA20_P": "G20",
+        "LA21_N": "E20",
+        "LA21_P": "E19",
+        "LA22_N": "F19",
+        "LA22_P": "G19",
+        "LA23_N": "D15",
+        "LA23_P": "E15",
+        "LA24_N": "A19",
+        "LA24_P": "A18",
+        "LA25_N": "C22",
+        "LA25_P": "D22",
+        "LA26_N": "E18",
+        "LA26_P": "F18",
+        "LA27_N": "D21",
+        "LA27_P": "E21",
+        "LA28_N": "A17",
+        "LA28_P": "A16",
+        "LA29_N": "C18",
+        "LA29_P": "C17",
+        "LA30_N": "B15",
+        "LA30_P": "C15",
+        "LA31_N": "B17",
+        "LA31_P": "B16",
+        "LA32_N": "A22",
+        "LA32_P": "A21",
+        "LA33_N": "B22",
+        "LA33_P": "B21",
+        "PRSNT_M2C_L": "AB14"
+    })
 ]
 
 
@@ -75,12 +161,12 @@ class Platform(XilinxPlatform):
         #      "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
         self.toolchain.additional_commands = [
             # Generate .bit.bin file for loading with linux fpga_manager
-            'exec bootgen -image {build_name}.bif -arch zynq -process_bitstream bin'
+            'exec bootgen -image {build_name}.bif -w -arch zynq -process_bitstream bin'
         ]
 
     def create_programmer(self, programmer="xc3sprog"):
         if programmer == "xc3sprog":
-            return XC3SProg("jtaghs2", jtag_pos=1)
+            return XC3SProg("jtaghs2", position=1)
         elif programmer == "openocd":
             return OpenOCD(config="board/digilent_zedboard.cfg")
         elif programmer == "vivado":
