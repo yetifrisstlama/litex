@@ -59,10 +59,10 @@ class SoCZynq(SoCCore):
             io_DDR_VRP=ps7_ddram_pads.vrp,
 
             # ethernet
-            i_ENET0_MDIO_I=0,
+            # i_ENET0_MDIO_I=0,
 
             # sdio0
-            i_SDIO0_WP=0,
+            # i_SDIO0_WP=0,
 
             # usb0
             i_USB0_VBUS_PWRFAULT=0,
