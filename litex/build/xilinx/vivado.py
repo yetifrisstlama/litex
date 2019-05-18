@@ -242,13 +242,6 @@ class XilinxVivadoToolchain:
         ips = platform.ips
         self._build_batch(platform, sources, edifs, ips, build_name, synth_mode, enable_xpm)
         tools.write_to_file(build_name + ".xdc", _build_xdc(named_sc, named_pc))
-        # bootgen needs this stupid .bif file
-        tools.write_to_file(build_name + ".bif", """\
-all:
-{{
-        {:}.bit
-}}
-        """.format(build_name))
         if run:
             if synth_mode == "yosys":
                 common._run_yosys(platform.device, sources, platform.verilog_include_paths, build_name)
