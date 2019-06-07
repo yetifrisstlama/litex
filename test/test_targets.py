@@ -95,8 +95,10 @@ class TestTargets(unittest.TestCase):
         platforms += ["kc705", "genesys2"]                         # Kintex7
         platforms += ["kcu105"]                                    # Kintex Ultrascale
 
-        # Altera
-        platforms += ["de0nano"]                                   # Cyclone4
+        # Altera/Intel
+        platforms += ["de10lite"]                                  # Max10
+        platforms += ["de0nano", "de2_115"]                        # Cyclone4
+        platforms += ["de1soc"]                                    # Cyclone5
 
         # Lattice
         platforms += ["tinyfpga_bx"]                               # iCE40

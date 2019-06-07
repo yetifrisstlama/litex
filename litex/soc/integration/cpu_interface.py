@@ -70,13 +70,15 @@ def get_linker_regions(regions):
     return r
 
 
-def get_mem_header(regions, flash_boot_address):
+def get_mem_header(regions, flash_boot_address, shadow_base):
     r = generated_banner("//")
     r += "#ifndef __GENERATED_MEM_H\n#define __GENERATED_MEM_H\n\n"
     for name, base, size in regions:
         r += "#define {name}_BASE 0x{base:08x}L\n#define {name}_SIZE 0x{size:08x}\n\n".format(name=name.upper(), base=base, size=size)
     if flash_boot_address is not None:
         r += "#define FLASH_BOOT_ADDRESS 0x{:08x}L\n\n".format(flash_boot_address)
+    if shadow_base is not None:
+        r += "#define SHADOW_BASE 0x{:08x}L\n\n".format(shadow_base)
     r += "#endif\n"
     return r
 
@@ -140,12 +142,9 @@ def get_csr_header(regions, constants, with_access_functions=True, with_shadow_b
     for name, origin, busword, obj in regions:
         if not with_shadow_base:
             origin &= (~shadow_base)
-        if isinstance(obj, Memory):
-            r += "\n/* "+name+" */\n"
-            r += "#define CSR_"+name.upper()+"_BASE "+hex(origin)+"L\n"
-        else:
-            r += "\n/* "+name+" */\n"
-            r += "#define CSR_"+name.upper()+"_BASE "+hex(origin)+"L\n"
+        r += "\n/* "+name+" */\n"
+        r += "#define CSR_"+name.upper()+"_BASE "+hex(origin)+"L\n"
+        if not isinstance(obj, Memory):
             for csr in obj:
                 nr = (csr.size + busword - 1)//busword
                 r += _get_rw_functions_c(name + "_" + csr.name, origin, nr, busword, isinstance(csr, CSRStatus), with_access_functions)
