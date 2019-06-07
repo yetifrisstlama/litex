@@ -652,8 +652,9 @@ class SRAM(Module):
         self.specials += self.mem, port
         # generate write enable signal
         if not read_only:
-            self.comb += [port.we[i].eq(self.bus.cyc & self.bus.stb & self.bus.we & self.bus.sel[i])
-                for i in range(bus_data_width//8)]
+            self.comb += [we.eq(
+                self.bus.cyc & self.bus.stb & self.bus.we & self.bus.sel[i]
+            ) for i, we in enumerate(port.we)]
         # address and data
         self.comb += [
             port.adr.eq(self.bus.adr[:len(port.adr)]),
