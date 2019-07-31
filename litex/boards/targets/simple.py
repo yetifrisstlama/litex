@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
+# License: BSD
+
 import argparse
 import importlib
 
@@ -10,7 +14,7 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
 
 from liteeth.phy import LiteEthPHY
-from liteeth.core.mac import LiteEthMAC
+from liteeth.mac import LiteEthMAC
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
@@ -39,7 +43,7 @@ class EthernetSoC(BaseSoC):
         self.add_csr("ethphy")
         self.submodules.ethmac = LiteEthMAC(phy=self.ethphy, dw=32,
             interface="wishbone", endianness=self.cpu.endianness, with_preamble_crc=False)
-        self.add_wb_slave(mem_decoder(self.mem_map["ethmac"]), self.ethmac.bus)
+        self.add_wb_slave(self.mem_map["ethmac"], self.ethmac.bus, 0x2000)
         self.add_memory_region("ethmac", self.mem_map["ethmac"] | self.shadow_base, 0x2000)
         self.add_csr("ethmac")
         self.add_interrupt("ethmac")

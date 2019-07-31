@@ -106,12 +106,12 @@ void flush_cpu_dcache(void)
 #endif
 }
 
+#ifdef CONFIG_L2_SIZE
 void flush_l2_cache(void)
 {
-#ifdef L2_SIZE
 	unsigned int i;
-	for(i=0;i<2*L2_SIZE/4;i++) {
+	for(i=0;i<2*CONFIG_L2_SIZE/4;i++) {
 		((volatile unsigned int *) MAIN_RAM_BASE)[i];
 	}
-#endif
 }
+#endif

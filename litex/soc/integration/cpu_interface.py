@@ -1,3 +1,17 @@
+# This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
+# This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2018 Dolu1990 <charles.papon.90@gmail.com>
+# This file is Copyright (c) 2019 Gabriel L. Somlo <gsomlo@gmail.com>
+# This file is Copyright (c) 2018 Jean-François Nguyen <jf@lambdaconcept.fr>
+# This file is Copyright (c) 2019 Mateusz Holenko <mholenko@antmicro.com>
+# This file is Copyright (c) 2013 Robert Jordens <jordens@gmail.com>
+# This file is Copyright (c) 2018 Sean Cross <sean@xobs.io>
+# This file is Copyright (c) 2018 Sergiusz Bazanski <q3k@q3k.org>
+# This file is Copyright (c) 2018-2016 Tim 'mithro' Ansell <me@mith.ro>
+# This file is Copyright (c) 2015 whitequark <whitequark@whitequark.org>
+# This file is Copyright (c) 2018 William D. Jones <thor0505@comcast.net>
+# License: BSD
+
 import os
 from shutil import which
 
@@ -6,6 +20,13 @@ from migen import *
 from litex.soc.interconnect.csr import CSRStatus
 
 from litex.build.tools import generated_banner
+
+# FIXME: use OrderedDict for constants?
+def get_constant(name, constants):
+    for n, v in constants:
+        if n == name:
+            return v
+    return None
 
 def get_cpu_mak(cpu):
     # select between clang and gcc
@@ -83,7 +104,7 @@ def get_mem_header(regions, flash_boot_address, shadow_base):
     return r
 
 
-def _get_rw_functions_c(reg_name, reg_base, nwords, busword, read_only, with_access_functions):
+def _get_rw_functions_c(reg_name, reg_base, nwords, busword, alignment, read_only, with_access_functions):
     r = ""
 
     r += "#define CSR_"+reg_name.upper()+"_ADDR "+hex(reg_base)+"L\n"
@@ -106,7 +127,7 @@ def _get_rw_functions_c(reg_name, reg_base, nwords, busword, read_only, with_acc
         if size > 1:
             r += "\t"+ctype+" r = csr_readl("+hex(reg_base)+"L);\n"
             for byte in range(1, nwords):
-                r += "\tr <<= "+str(busword)+";\n\tr |= csr_readl("+hex(reg_base+4*byte)+"L);\n"
+                r += "\tr <<= "+str(busword)+";\n\tr |= csr_readl("+hex(reg_base+alignment//8*byte)+"L);\n"
             r += "\treturn r;\n}\n"
         else:
             r += "\treturn csr_readl("+hex(reg_base)+"L);\n}\n"
@@ -119,12 +140,13 @@ def _get_rw_functions_c(reg_name, reg_base, nwords, busword, read_only, with_acc
                     value_shifted = "value >> "+str(shift)
                 else:
                     value_shifted = "value"
-                r += "\tcsr_writel("+value_shifted+", "+hex(reg_base+4*word)+"L);\n"
+                r += "\tcsr_writel("+value_shifted+", "+hex(reg_base+alignment//8*word)+"L);\n"
             r += "}\n"
     return r
 
 
 def get_csr_header(regions, constants, with_access_functions=True, with_shadow_base=True, shadow_base=0x80000000):
+    alignment = get_constant("CONFIG_CSR_ALIGNMENT", constants)
     r = generated_banner("//")
     r += "#ifndef __GENERATED_CSR_H\n#define __GENERATED_CSR_H\n"
     if with_access_functions:
@@ -147,8 +169,9 @@ def get_csr_header(regions, constants, with_access_functions=True, with_shadow_b
         if not isinstance(obj, Memory):
             for csr in obj:
                 nr = (csr.size + busword - 1)//busword
-                r += _get_rw_functions_c(name + "_" + csr.name, origin, nr, busword, isinstance(csr, CSRStatus), with_access_functions)
-                origin += 4*nr
+                r += _get_rw_functions_c(name + "_" + csr.name, origin, nr, busword, alignment,
+                    isinstance(csr, CSRStatus), with_access_functions)
+                origin += alignment//8*nr
 
     r += "\n/* constants */\n"
     for name, value in constants:
@@ -171,6 +194,7 @@ def get_csr_header(regions, constants, with_access_functions=True, with_shadow_b
 
 
 def get_csr_csv(csr_regions=None, constants=None, memory_regions=None):
+    alignment = 32 if constants is None else get_constant("CONFIG_CSR_ALIGNMENT", constants)
     r = generated_banner("#")
 
     if csr_regions is not None:
@@ -182,7 +206,7 @@ def get_csr_csv(csr_regions=None, constants=None, memory_regions=None):
                 for csr in obj:
                     nr = (csr.size + busword - 1)//busword
                     r += "csr_register,{}_{},0x{:08x},{},{}\n".format(name, csr.name, origin, nr, "ro" if isinstance(csr, CSRStatus) else "rw")
-                    origin += 4*nr
+                    origin += alignment//8*nr
 
     if constants is not None:
         for name, value in constants:
@@ -192,4 +216,13 @@ def get_csr_csv(csr_regions=None, constants=None, memory_regions=None):
         for name, origin, length in memory_regions:
             r += "memory_region,{},0x{:08x},{:d},\n".format(name.lower(), origin, length)
 
+    return r
+
+def get_git_header():
+    from litex.build.tools import get_migen_git_revision, get_litex_git_revision
+    r = generated_banner("//")
+    r += "#ifndef __GENERATED_GIT_H\n#define __GENERATED_GIT_H\n\n"
+    r += "#define MIGEN_GIT_SHA1 \"{}\"\n".format(get_migen_git_revision())
+    r += "#define LITEX_GIT_SHA1 \"{}\"\n".format(get_litex_git_revision())
+    r += "#endif\n"
     return r

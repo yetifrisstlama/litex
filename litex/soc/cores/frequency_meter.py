@@ -1,3 +1,6 @@
+# This file is Copyright (c) 2017-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# License: BSD
+
 from migen import *
 from migen.genlib.cdc import MultiReg, GrayCounter
 from migen.genlib.cdc import GrayDecoder
@@ -32,8 +35,8 @@ class Sampler(Module):
 
 
 class FrequencyMeter(Module, AutoCSR):
-    def __init__(self, period, width=6):
-        self.clk = Signal()
+    def __init__(self, period, width=6, clk=None):
+        self.clk = Signal() if clk is None else clk
         self.value = CSRStatus(32)
 
         # # #

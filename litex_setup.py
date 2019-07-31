@@ -16,7 +16,6 @@ repos = [
     ("migen",      ("http://github.com/m-labs/",        True,  True)),
     ("litex",      (LITEX_ROOT_URL, True,  True)),
     ("liteeth",    (LITEOTHER_ROOT_URL, False, True)),
-    ("liteusb",    (LITEOTHER_ROOT_URL, False, True)),
     ("litedram",   (LITEOTHER_ROOT_URL, False, True)),
     ("litepcie",   (LITEOTHER_ROOT_URL, False, True)),
     ("litesata",   (LITEOTHER_ROOT_URL, False, True)),

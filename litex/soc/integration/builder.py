@@ -1,3 +1,13 @@
+# This file is Copyright (c) 2015 Sebastien Bourdeauducq <sb@m-labs.hk>
+# This file is Copyright (c) 2015-2018 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2019 Mateusz Holenko <mholenko@antmicro.com>
+# This file is Copyright (c) 2018 Peter Gielda <pgielda@antmicro.com>
+# This file is Copyright (c) 2018 Sergiusz Bazanski <q3k@q3k.org>
+# This file is Copyright (c) 2016-2017 Tim 'mithro' Ansell <mithro@mithis.com>
+# This file is Copyright (c) 2018 William D. Jones <thor0505@comcast.net>
+# License: BSD
+
+
 import os
 import subprocess
 import struct
@@ -93,20 +103,22 @@ class Builder:
         write_to_file(
             os.path.join(generated_dir, "variables.mak"),
             "".join(variables_contents))
-
         write_to_file(
             os.path.join(generated_dir, "output_format.ld"),
             cpu_interface.get_linker_output_format(self.soc.cpu))
         write_to_file(
             os.path.join(generated_dir, "regions.ld"),
             cpu_interface.get_linker_regions(memory_regions))
-
         write_to_file(
             os.path.join(generated_dir, "mem.h"),
             cpu_interface.get_mem_header(memory_regions, flash_boot_address, shadow_base))
         write_to_file(
             os.path.join(generated_dir, "csr.h"),
             cpu_interface.get_csr_header(csr_regions, constants))
+        write_to_file(
+            os.path.join(generated_dir, "git.h"),
+            cpu_interface.get_git_header()
+        )
 
         if isinstance(self.soc, soc_sdram.SoCSDRAM):
             if hasattr(self.soc, "sdram"):

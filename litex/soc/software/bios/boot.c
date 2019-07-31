@@ -1,3 +1,12 @@
+// This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
+// This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+// This file is Copyright (c) 2018 Ewen McNeill <ewen@naos.co.nz>
+// This file is Copyright (c) 2018 Felix Held <felix-github@felixheld.de>
+// This file is Copyright (c) 2019 Gabriel L. Somlo <gsomlo@gmail.com>
+// This file is Copyright (c) 2017 Tim 'mithro' Ansell <mithro@mithis.com>
+// This file is Copyright (c) 2018 William D. Jones <thor0505@comcast.net>
+// License: BSD
+
 #include <stdio.h>
 #include <console.h>
 #include <uart.h>
@@ -31,7 +40,7 @@ static void __attribute__((noreturn)) boot(unsigned long r1, unsigned long r2, u
 	flush_cpu_icache();
 #endif
 	flush_cpu_dcache();
-#ifdef L2_SIZE
+#ifdef CONFIG_L2_SIZE
 	flush_l2_cache();
 #endif
 	boot_helper(r1, r2, r3, addr);
@@ -51,7 +60,7 @@ static int check_ack(void)
 
 	timer0_en_write(0);
 	timer0_reload_write(0);
-	timer0_load_write(SYSTEM_CLOCK_FREQUENCY/4);
+	timer0_load_write(CONFIG_CLOCK_FREQUENCY/4);
 	timer0_en_write(1);
 	timer0_update_value_write(1);
 	recognized = 0;
@@ -207,13 +216,60 @@ const char *filename, char *buffer)
 
 	r = tftp_get(ip, server_port, filename, buffer);
 	if(r > 0)
-		printf("Successfully downloaded %d bytes from %s over TFTP\n", r, filename);
+		printf("Downloaded %d bytes from %s over TFTP to 0x%08x\n", r, filename, buffer);
 	else
 		printf("Unable to download %s over TFTP\n", filename);
 	return r;
 }
 
 static const unsigned char macadr[6] = {0x10, 0xe2, 0xd5, 0x00, 0x00, 0x00};
+
+#define KERNEL_IMAGE_RAM_OFFSET      0x00000000
+#define ROOTFS_IMAGE_RAM_OFFSET      0x00800000
+#define DEVICE_TREE_IMAGE_RAM_OFFSET 0x01000000
+
+#ifndef EMULATOR_RAM_BASE
+#define EMULATOR_RAM_BASE 0x20000000
+#endif
+#define EMULATOR_IMAGE_RAM_OFFSET    0x00000000
+
+#if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
+static int try_get_kernel_rootfs_dtb_emulator(unsigned int ip, unsigned short tftp_port)
+{
+	unsigned long tftp_dst_addr;
+	int size;
+
+	tftp_dst_addr = MAIN_RAM_BASE + KERNEL_IMAGE_RAM_OFFSET;
+	size = tftp_get_v(ip, tftp_port, "Image", (void *)tftp_dst_addr);
+	if (size <= 0) {
+		printf("Network boot failed\n");
+		return 0;
+	}
+
+	tftp_dst_addr = MAIN_RAM_BASE + ROOTFS_IMAGE_RAM_OFFSET;
+	size = tftp_get_v(ip, tftp_port, "rootfs.cpio", (void *)tftp_dst_addr);
+	if(size <= 0) {
+		printf("No rootfs.cpio found\n");
+		return 0;
+	}
+
+	tftp_dst_addr = MAIN_RAM_BASE + DEVICE_TREE_IMAGE_RAM_OFFSET;
+	size = tftp_get_v(ip, tftp_port, "rv32.dtb", (void *)tftp_dst_addr);
+	if(size <= 0) {
+		printf("No rv32.dtb found\n");
+		return 0;
+	}
+
+	tftp_dst_addr = EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET;
+	size = tftp_get_v(ip, tftp_port, "emulator.bin", (void *)tftp_dst_addr);
+	if(size <= 0) {
+		printf("No emulator.bin found\n");
+		return 0;
+	}
+
+	return 1;
+}
+#endif
 
 void netboot(void)
 {
@@ -233,37 +289,14 @@ void netboot(void)
 	tftp_port = TFTP_SERVER_PORT;
 	printf("Fetching from: UDP/%d\n", tftp_port);
 
-#ifdef NETBOOT_LINUX_VEXRISCV
-	tftp_dst_addr = MAIN_RAM_BASE;
-	size = tftp_get_v(ip, tftp_port, "Image", (void *)tftp_dst_addr);
-	if (size <= 0) {
-		printf("Network boot failed\n");
+#if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
+	if(try_get_kernel_rootfs_dtb_emulator(ip, tftp_port))
+	{
+		boot(0, 0, 0, EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
 		return;
 	}
-
-	tftp_dst_addr = MAIN_RAM_BASE + 0x00800000;
-	size = tftp_get_v(ip, tftp_port, "rootfs.cpio", (void *)tftp_dst_addr);
-	if(size <= 0) {
-		printf("No rootfs.cpio found\n");
-		return;
-	}
-
-	tftp_dst_addr = MAIN_RAM_BASE + 0x01000000;
-	size = tftp_get_v(ip, tftp_port, "rv32.dtb", (void *)tftp_dst_addr);
-	if(size <= 0) {
-		printf("No rv32.dtb found\n");
-		return;
-	}
-
-	tftp_dst_addr = EMULATOR_RAM_BASE;
-	size = tftp_get_v(ip, tftp_port, "emulator.bin", (void *)tftp_dst_addr);
-	if(size <= 0) {
-		printf("No emulator.bin found\n");
-		return;
-	}
-
-	boot(0, 0, 0, EMULATOR_RAM_BASE);
-#else
+	printf("Unable to download Linux images, falling back to boot.bin\n");
+#endif
 	tftp_dst_addr = MAIN_RAM_BASE;
 	size = tftp_get_v(ip, tftp_port, "boot.bin", (void *)tftp_dst_addr);
 	if (size <= 0) {
@@ -272,33 +305,9 @@ void netboot(void)
 	}
 
 	boot(0, 0, 0, MAIN_RAM_BASE);
-#endif
-
 }
 
 #endif
-
-#ifdef FLASHBOOT_LINUX_VEXRISCV
-
-/* TODO: add configurable flash mapping, improve integration */
-
-void flashboot(void)
-{
-	printf("Loading Image from flash...\n");
-	memcpy((void *)MAIN_RAM_BASE + 0x00000000, (void *)0x50400000, 0x400000);
-
-	printf("Loading rootfs.cpio from flash...\n");
-	memcpy((void *)MAIN_RAM_BASE + 0x00800000, (void *)0x50800000, 0x700000);
-
-	printf("Loading rv32.dtb from flash...\n");
-	memcpy((void *)MAIN_RAM_BASE + 0x01000000, (void *)0x50f00000, 0x001000);
-
-	printf("Loading emulator.bin from flash...\n");
-	memcpy((void *)EMULATOR_RAM_BASE + 0x00000000, (void *)0x50f80000, 0x004000);
-
-	boot(0, 0, 0, EMULATOR_RAM_BASE);
-}
-#else
 
 #ifdef FLASH_BOOT_ADDRESS
 
@@ -312,36 +321,101 @@ void flashboot(void)
 #define FIRMWARE_BASE_ADDRESS (FLASH_BOOT_ADDRESS + 2 * sizeof(unsigned int))
 #endif
 
-void flashboot(void)
+static unsigned int check_image_in_flash(unsigned int *base_address)
 {
-	unsigned int *flashbase;
 	unsigned int length;
 	unsigned int crc;
 	unsigned int got_crc;
 
-	printf("Booting from flash...\n");
-	flashbase = (unsigned int *)FLASH_BOOT_ADDRESS;
-	length = *flashbase++;
-	crc = *flashbase++;
+	length = *base_address++;
 	if((length < 32) || (length > 4*1024*1024)) {
-		printf("Error: Invalid flash boot image length 0x%08x\n", length);
-		return;
+		printf("Error: Invalid image length 0x%08x\n", length);
+		return 0;
 	}
 
-#ifdef MAIN_RAM_BASE
-	printf("Loading %d bytes from flash...\n", length);
-	memcpy((void *)MAIN_RAM_BASE, flashbase, length);
-#endif
-
-	got_crc = crc32((unsigned char *)FIRMWARE_BASE_ADDRESS, length);
+	crc = *base_address++;
+	got_crc = crc32((unsigned char *)base_address, length);
 	if(crc != got_crc) {
 		printf("CRC failed (expected %08x, got %08x)\n", crc, got_crc);
-		return;
+		return 0;
 	}
-	boot(0, 0, 0, FIRMWARE_BASE_ADDRESS);
+
+	return length;
+}
+
+#if defined(MAIN_RAM_BASE) && defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
+static int copy_image_from_flash_to_ram(unsigned int *flash_address, unsigned int *ram_address)
+{
+	unsigned int length;
+
+	length = check_image_in_flash(flash_address);
+	if(length > 0) {
+		// skip length and crc
+		memcpy((void *)ram_address, (void *)(flash_address + 2), length);
+		return 1;
+	}
+
+	return 0;
 }
 #endif
 
+#define KERNEL_IMAGE_FLASH_OFFSET      0x00000000 //  0MB
+#define ROOTFS_IMAGE_FLASH_OFFSET      0x00400000 //  4MB
+#define DEVICE_TREE_IMAGE_FLASH_OFFSET 0x00B00000 // 11MB
+#define EMULATOR_IMAGE_FLASH_OFFSET    0x00B01000 // 11MB + 4KB
+
+void flashboot(void)
+{
+	unsigned int length;
+
+#if defined(MAIN_RAM_BASE) && defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
+	unsigned int result;
+
+	printf("Loading emulator.bin from flash...\n");
+	result = copy_image_from_flash_to_ram(
+		(unsigned int *)(FLASH_BOOT_ADDRESS + EMULATOR_IMAGE_FLASH_OFFSET),
+		(unsigned int *)(EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET));
+
+	if(result) {
+		printf("Loading Image from flash...\n");
+		result &= copy_image_from_flash_to_ram(
+			(unsigned int *)(FLASH_BOOT_ADDRESS + KERNEL_IMAGE_FLASH_OFFSET),
+			(unsigned int *)(MAIN_RAM_BASE + KERNEL_IMAGE_RAM_OFFSET));
+	}
+
+	if(result) {
+		printf("Loading rootfs.cpio from flash...\n");
+		result &= copy_image_from_flash_to_ram(
+			(unsigned int *)(FLASH_BOOT_ADDRESS + ROOTFS_IMAGE_FLASH_OFFSET),
+			(unsigned int *)(MAIN_RAM_BASE + ROOTFS_IMAGE_RAM_OFFSET));
+	}
+
+	if(result) {
+		printf("Loading rv32.dtb from flash...\n");
+		result &= copy_image_from_flash_to_ram(
+			(unsigned int *)(FLASH_BOOT_ADDRESS + DEVICE_TREE_IMAGE_FLASH_OFFSET),
+			(unsigned int *)(MAIN_RAM_BASE + DEVICE_TREE_IMAGE_RAM_OFFSET));
+	}
+
+	if(result) {
+		boot(0, 0, 0, EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
+		return;
+	}
+#endif
+
+	printf("Booting from flash...\n");
+	length = check_image_in_flash((unsigned int *) FLASH_BOOT_ADDRESS);
+	if(!length)
+		return;
+
+#ifdef MAIN_RAM_BASE
+	printf("Loading %d bytes from flash...\n", length);
+	// skip length and crc
+	memcpy((void *)MAIN_RAM_BASE, (unsigned int *)(FLASH_BOOT_ADDRESS + 2 * sizeof(unsigned int)), length);
+#endif
+
+	boot(0, 0, 0, FIRMWARE_BASE_ADDRESS);
+}
 #endif
 
 #ifdef ROM_BOOT_ADDRESS

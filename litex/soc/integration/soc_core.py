@@ -1,4 +1,17 @@
-#!/usr/bin/env python3
+# This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
+# This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2018 Dolu1990 <charles.papon.90@gmail.com>
+# This file is Copyright (c) 2019 Gabriel L. Somlo <gsomlo@gmail.com>
+# This file is Copyright (c) 2019 Ilia Sergachev <ilia.sergachev@protonmail.ch>
+# This file is Copyright (c) 2018 Jean-François Nguyen <jf@lambdaconcept.fr>
+# This file is Copyright (c) 2015 Robert Jordens <jordens@gmail.com>
+# This file is Copyright (c) 2018 Sean Cross <sean@xobs.io>
+# This file is Copyright (c) 2018 Stafford Horne <shorne@gmail.com>
+# This file is Copyright (c) 2018-2017 Tim 'mithro' Ansell <me@mith.ro>
+# This file is Copyright (c) 2015 whitequark <whitequark@whitequark.org>
+# This file is Copyright (c) 2014 Yann Sionneau <ys@m-labs.hk>
+# License: BSD
+
 import os
 import struct
 import inspect
@@ -13,7 +26,7 @@ from migen import *
 from litex.build.tools import deprecated_warning
 
 from litex.soc.cores import identifier, timer, uart
-from litex.soc.cores.cpu import *
+from litex.soc.cores import cpu
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect import wishbone, csr_bus, wishbone2csr
 
@@ -24,44 +37,11 @@ __all__ = [
     "csr_map_update",
     "SoCCore",
     "soc_core_args",
-    "soc_core_argdict"
+    "soc_core_argdict",
+    "SoCMini",
+    "soc_mini_args",
+    "soc_mini_argdict",
 ]
-
-# CPU Variants -------------------------------------------------------------------------------------
-
-CPU_VARIANTS = {
-    # "official name": ["alias 1", "alias 2"],
-    "minimal" : ["min",],
-    "lite" : ["light", "zephyr", "nuttx"],
-    "standard": [None, "std"],
-    "full": [],
-    "linux" : [],
-}
-CPU_VARIANTS_EXTENSIONS = ["debug"]
-
-
-class InvalidCPUVariantError(ValueError):
-    def __init__(self, variant):
-        msg = """\
-Invalid cpu_variant value: {}
-
-Possible Values:
-""".format(variant)
-        for k, v in CPU_VARIANTS.items():
-            msg += " - {} (aliases: {})\n".format(k, ", ".join(str(s) for s in v))
-        ValueError.__init__(self, msg)
-
-
-class InvalidCPUExtensionError(ValueError):
-    def __init__(self, variant):
-        msg = """\
-Invalid extension in cpu_variant value: {}
-
-Possible Values:
-""".format(variant)
-        for e in CPU_VARIANTS_EXTENSIONS:
-            msg += " - {}\n".format(e)
-        ValueError.__init__(self, msg)
 
 # Helpers ------------------------------------------------------------------------------------------
 
@@ -116,8 +96,13 @@ def get_mem_data(filename_or_regions, endianness="big", mem_size=None):
                 i += 1
     return data
 
-def mem_decoder(address, start=26, end=29):
-    return lambda a: a[start:end] == ((address >> (start+2)) & (2**(end-start))-1)
+def mem_decoder(address, size=0x10000000):
+    address &= ~0x80000000
+    size = 2**log2_int(size, False)
+    assert (address & (size - 1)) == 0
+    address >>= 2 # bytes to words aligned
+    size    >>= 2 # bytes to words aligned
+    return lambda a: (a[log2_int(size):-1] == (address >> log2_int(size)))
 
 def csr_map_update(csr_map, csr_peripherals):
     csr_map.update(dict((n, v)
@@ -156,9 +141,9 @@ class SoCCore(Module):
     interrupt_map = {}
     mem_map       = {
         "rom":      0x00000000,  # (default shadow @0x80000000)
-        "sram":     0x10000000,  # (default shadow @0x90000000)
+        "sram":     0x01000000,  # (default shadow @0x81000000)
+        "csr":      0x02000000,  # (default shadow @0x82000000)
         "main_ram": 0x40000000,  # (default shadow @0xc0000000)
-        "csr":      0x60000000,  # (default shadow @0xe0000000)
     }
     def __init__(self, platform, clk_freq,
                 # CPU parameters
@@ -172,7 +157,7 @@ class SoCCore(Module):
                 # MAIN_RAM parameters
                 integrated_main_ram_size=0, integrated_main_ram_init=[],
                 # CSR parameters
-                csr_data_width=8, csr_address_width=14,
+                csr_data_width=8, csr_alignment=32, csr_address_width=14,
                 # Identifier parameters
                 ident="", ident_version=False,
                 # UART parameters
@@ -209,36 +194,20 @@ class SoCCore(Module):
 
         # Parameters managment ---------------------------------------------------------------------
 
-        # FIXME: RocketChip reserves the first 256Mbytes for internal use
-        # remap rom to 0x10000000, sram to 0x20000000
+        # NOTE: RocketChip reserves the first 256Mbytes for internal use,
+        #       so we must change default mem_map;
+        #       Also, CSRs *must* be 64-bit aligned.
         if cpu_type == "rocket":
             self.soc_mem_map["rom"]  = 0x10000000
-            self.soc_mem_map["sram"] = 0x20000000
+            self.soc_mem_map["sram"] = 0x11000000
+            self.soc_mem_map["csr"]  = 0x12000000
+            csr_alignment = 64
 
         if cpu_type == "None":
             cpu_type = None
         self.cpu_type = cpu_type
 
-        # Support the old style which used underscore for separator
-        if cpu_variant is None:
-            cpu_variant = "standard"
-        cpu_variant = cpu_variant.replace('_', '+')
-
-        # Check for valid CPU variants.
-        cpu_variant_processor, *cpu_variant_ext = cpu_variant.split('+')
-        for key, values in CPU_VARIANTS.items():
-            if cpu_variant_processor not in [key,]+values:
-                continue
-            self.cpu_variant = key
-            break
-        else:
-            raise InvalidCPUVariantError(cpu_variant)
-
-        # Check for valid CPU extensions.
-        for ext in sorted(cpu_variant_ext):
-            if ext not in CPU_VARIANTS_EXTENSIONS:
-                raise InvalidCPUExtensionError(cpu_variant)
-            self.cpu_variant += "+"+ext
+        self.cpu_variant = cpu.check_format_cpu_variant(cpu_variant)
 
         if integrated_rom_size:
             cpu_reset_address = self.soc_mem_map["rom"]
@@ -252,7 +221,10 @@ class SoCCore(Module):
         self.integrated_sram_size = integrated_sram_size
         self.integrated_main_ram_size = integrated_main_ram_size
 
+        assert csr_data_width in [8, 32, 64]
+        assert csr_alignment in [32, 64]
         self.csr_data_width = csr_data_width
+        self.csr_alignment = csr_alignment
         self.csr_address_width = csr_address_width
 
         self.with_ctrl = with_ctrl
@@ -276,21 +248,23 @@ class SoCCore(Module):
         # Add CPU
         self.config["CPU_TYPE"] = str(cpu_type).upper()
         if cpu_type is not None:
+            if cpu_variant is not None:
+                self.config["CPU_VARIANT"] = str(cpu_variant.split('+')[0]).upper()
             # CPU selection / instance
             if cpu_type == "lm32":
-                self.add_cpu(lm32.LM32(platform, self.cpu_reset_address, self.cpu_variant))
+                self.add_cpu(cpu.lm32.LM32(platform, self.cpu_reset_address, self.cpu_variant))
             elif cpu_type == "mor1kx" or cpu_type == "or1k":
                 if cpu_type == "or1k":
                     deprecated_warning("SoCCore's \"cpu-type\" to \"mor1kx\"")
-                self.add_cpu(mor1kx.MOR1KX(platform, self.cpu_reset_address, self.cpu_variant))
+                self.add_cpu(cpu.mor1kx.MOR1KX(platform, self.cpu_reset_address, self.cpu_variant))
             elif cpu_type == "picorv32":
-                self.add_cpu(picorv32.PicoRV32(platform, self.cpu_reset_address, self.cpu_variant))
+                self.add_cpu(cpu.picorv32.PicoRV32(platform, self.cpu_reset_address, self.cpu_variant))
             elif cpu_type == "vexriscv":
-                self.add_cpu(vexriscv.VexRiscv(platform, self.cpu_reset_address, self.cpu_variant))
+                self.add_cpu(cpu.vexriscv.VexRiscv(platform, self.cpu_reset_address, self.cpu_variant))
             elif cpu_type == "minerva":
-                self.add_cpu(minerva.Minerva(platform, self.cpu_reset_address, self.cpu_variant))
+                self.add_cpu(cpu.minerva.Minerva(platform, self.cpu_reset_address, self.cpu_variant))
             elif cpu_type == "rocket":
-                self.add_cpu(rocket.RocketRV64(platform, self.cpu_reset_address, self.cpu_variant))
+                self.add_cpu(cpu.rocket.RocketRV64(platform, self.cpu_reset_address, self.cpu_variant))
             else:
                 raise ValueError("Unsupported CPU type: {}".format(cpu_type))
 
@@ -333,8 +307,9 @@ class SoCCore(Module):
             bus_csr=csr_bus.Interface(csr_data_width, csr_address_width))
         self.add_csr_master(self.wishbone2csr.csr)
         self.config["CSR_DATA_WIDTH"] = csr_data_width
-        self.add_constant("CSR_DATA_WIDTH", csr_data_width)
-        self.register_mem("csr", self.soc_mem_map["csr"], self.wishbone2csr.wishbone)
+        self.config["CSR_ALIGNMENT"] = csr_alignment
+        assert 2**(csr_address_width + 2) <= 0x1000000
+        self.register_mem("csr", self.soc_mem_map["csr"], self.wishbone2csr.wishbone, 0x1000000)
 
         # Add UART
         if with_uart:
@@ -354,7 +329,6 @@ class SoCCore(Module):
             self.submodules.identifier = identifier.Identifier(ident)
             self.add_csr("identifier_mem", allow_user_defined=True)
         self.config["CLOCK_FREQUENCY"] = int(clk_freq)
-        self.add_constant("SYSTEM_CLOCK_FREQUENCY", int(clk_freq))
 
         # Add Timer
         if with_timer:
@@ -382,7 +356,7 @@ class SoCCore(Module):
             if allow_user_defined:
                 return
             else:
-                raise ValueError("Interrupt conflit, {} name already used".format(interrupt_name))
+                raise ValueError("Interrupt conflict, {} name already used".format(interrupt_name))
 
         # Check that interrupt_id is in range
         if interrupt_id is not None and interrupt_id >= 32:
@@ -410,7 +384,7 @@ class SoCCore(Module):
             if allow_user_defined:
                 return
             else:
-                raise ValueError("CSR conflit, {} name already used".format(csr_name))
+                raise ValueError("CSR conflict, {} name already used".format(csr_name))
 
         # Check that csr_id is in range
         if csr_id is not None and csr_id >= 2**self.csr_address_width:
@@ -440,9 +414,13 @@ class SoCCore(Module):
             raise FinalizeError
         self._wb_masters.append(wbm)
 
-    def add_wb_slave(self, address_decoder, interface):
+    def add_wb_slave(self, address_or_address_decoder, interface, size=None):
         if self.finalized:
             raise FinalizeError
+        if size is not None:
+            address_decoder = mem_decoder(address_or_address_decoder, size)
+        else:
+            address_decoder = address_or_address_decoder
         self._wb_slaves.append((address_decoder, interface))
 
     def add_csr_master(self, csrm):
@@ -455,18 +433,18 @@ class SoCCore(Module):
         def in_this_region(addr):
             return addr >= origin and addr < origin + length
         for n, o, l in self._memory_regions:
+            l = 2**log2_int(l, False)
             if n == name or in_this_region(o) or in_this_region(o+l-1):
                 raise ValueError("Memory region conflict between {} and {}".format(n, name))
 
         self._memory_regions.append((name, origin, length))
 
-    def register_mem(self, name, address, interface, size=None):
-        self.add_wb_slave(mem_decoder(address), interface)
-        if size is not None:
-            self.add_memory_region(name, address, size)
+    def register_mem(self, name, address, interface, size=0x10000000):
+        self.add_wb_slave(address, interface, size)
+        self.add_memory_region(name, address, size)
 
     def register_rom(self, interface, rom_size=0xa000):
-        self.add_wb_slave(mem_decoder(self.soc_mem_map["rom"]), interface)
+        self.add_wb_slave(self.soc_mem_map["rom"], interface, rom_size)
         self.add_memory_region("rom", self.cpu_reset_address, rom_size)
 
     def get_memory_regions(self):
@@ -536,7 +514,9 @@ class SoCCore(Module):
         # Collect and create CSRs
         self.submodules.csrbankarray = csr_bus.CSRBankArray(self,
             self.get_csr_dev_address,
-            data_width=self.csr_data_width, address_width=self.csr_address_width)
+            data_width=self.csr_data_width,
+            address_width=self.csr_address_width,
+            alignment=self.csr_alignment)
 
         # Add CSRs interconnect
         self.submodules.csrcon = csr_bus.InterconnectShared(
@@ -560,6 +540,8 @@ class SoCCore(Module):
             self._constants.append(((name + "_" + constant.name).upper(), constant.value.value))
         for name, value in sorted(self.config.items(), key=itemgetter(0)):
             self._constants.append(("CONFIG_" + name.upper(), value))
+            if isinstance(value, str):
+                self._constants.append(("CONFIG_" + name.upper() + "_" + value, 1))
 
         # Connect interrupts
         if hasattr(self, "cpu"):
@@ -573,7 +555,7 @@ class SoCCore(Module):
                         self.comb += self.cpu.interrupt[_id].eq(module.ev.irq)
 
 
-# SoCCores arguments -------------------------------------------------------------------------------
+# SoCCore arguments --------------------------------------------------------------------------------
 
 def soc_core_args(parser):
     parser.add_argument("--cpu-type", default=None,
@@ -600,3 +582,23 @@ def soc_core_argdict(args):
         if arg is not None:
             r[a] = arg
     return r
+
+# SoCMini ---------------------------------------------------------------------------------------
+
+class SoCMini(SoCCore):
+     def __init__(self, *args, **kwargs):
+        if "cpu_type" not in kwargs.keys():
+            kwargs["cpu_type"] = None
+        if "integrated_sram_size" not in kwargs.keys():
+            kwargs["integrated_sram_size"] = 0
+        if "with_uart" not in kwargs.keys():
+            kwargs["with_uart"] = False
+        if "with_timer" not in kwargs.keys():
+            kwargs["with_timer"] = False
+
+        SoCCore.__init__(self, *args, **kwargs)
+
+# SoCMini arguments -----------------------------------------------------------------------------
+
+soc_mini_args = soc_core_args
+soc_mini_argdict = soc_core_argdict

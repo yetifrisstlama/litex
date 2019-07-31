@@ -1,3 +1,7 @@
+# This file is Copyright (c) 2017-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2019 Tim 'mithro' Ansell <me@mith.ro>
+# License: BSD
+
 import subprocess
 import unittest
 import os
@@ -89,16 +93,13 @@ class TestTargets(unittest.TestCase):
     def test_simple(self):
         platforms = []
         # Xilinx
-        platforms += ["minispartan6", "sp605"]                     # Spartan6
-        platforms += ["arty", "netv2", "nexys4ddr", "nexys_video", # Artix7
-                      "ac701"]
+        platforms += ["minispartan6"]                              # Spartan6
+        platforms += ["arty", "netv2", "nexys4ddr", "nexys_video"] # Artix7
         platforms += ["kc705", "genesys2"]                         # Kintex7
         platforms += ["kcu105"]                                    # Kintex Ultrascale
 
         # Altera/Intel
-        platforms += ["de10lite"]                                  # Max10
-        platforms += ["de0nano", "de2_115"]                        # Cyclone4
-        platforms += ["de1soc"]                                    # Cyclone5
+        platforms += ["de0nano"]                                   # Cyclone4
 
         # Lattice
         platforms += ["tinyfpga_bx"]                               # iCE40

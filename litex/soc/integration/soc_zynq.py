@@ -1,3 +1,6 @@
+# This file is Copyright (c) 2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# License: BSD
+
 import os
 
 from migen import *
@@ -29,6 +32,7 @@ class SoCZynq(SoCCore):
         SoCCore.__init__(self, platform, clk_freq, cpu_type=None, shadow_base=0x00000000, **kwargs)
 
         # PS7 (Minimal) ----------------------------------------------------------------------------
+        fclk_reset0_n = Signal()
         ps7_ddram_pads = platform.request("ps7_ddram")
         self.ps7_params = dict(
             # clk/rst
@@ -67,12 +71,11 @@ class SoCZynq(SoCCore):
             # usb0
             i_USB0_VBUS_PWRFAULT=0,
 
-            # fabric clk
+            # fabric clk/rst
             o_FCLK_CLK0=ClockSignal("sys"),
-
-            # axi gp0 clk
-            i_M_AXI_GP0_ACLK=ClockSignal("sys"),
+            o_FCLK_RESET0_N=fclk_reset0_n
         )
+        self.comb += ResetSignal("sys").eq(~fclk_reset0_n)
         platform.add_ip(os.path.join("ip", ps7_name + ".xci"))
 
     # GP0 ------------------------------------------------------------------------------------------
@@ -80,6 +83,9 @@ class SoCZynq(SoCCore):
     def add_gp0(self):
         self.axi_gp0 = axi_gp0 = axi.AXIInterface(data_width=32, address_width=32, id_width=12)
         self.ps7_params.update(
+            # axi gp0 clk
+            i_M_AXI_GP0_ACLK=ClockSignal("sys"),
+
             # axi gp0 aw
             o_M_AXI_GP0_AWVALID=axi_gp0.aw.valid,
             i_M_AXI_GP0_AWREADY=axi_gp0.aw.ready,
@@ -135,6 +141,9 @@ class SoCZynq(SoCCore):
         self.axi_hp0 = axi_hp0 = axi.AXIInterface(data_width=64, address_width=32, id_width=6)
         self.axi_hp0_fifo_ctrl = axi_hp0_fifo_ctrl = Record(axi_fifo_ctrl_layout())
         self.ps7_params.update(
+            # axi hp0 clk
+            i_S_AXI_HP0_ACLK=ClockSignal("sys"),
+
             # axi hp0 aw
             i_S_AXI_HP0_AWVALID=axi_hp0.aw.valid,
             o_S_AXI_HP0_AWREADY=axi_hp0.aw.ready,

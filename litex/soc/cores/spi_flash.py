@@ -1,11 +1,21 @@
+# This file is Copyright (c) 2014 Yann Sionneau <ys@m-labs.hk>
+# This file is Copyright (c) 2014-2018 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2013-2014 Robert Jordens <jordens@gmail.com>
+# This file is Copyright (c) 2015-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
+
+# License: BSD
+
+
 from migen import *
 from migen.genlib.misc import timeline
 
 from litex.gen import *
 
 from litex.soc.interconnect import wishbone
-from litex.soc.interconnect.csr import AutoCSR, CSRStorage, CSRStatus
+from litex.soc.interconnect.csr import *
+from litex.soc.cores.spi import SPIMaster
 
+# SpiFlash Quad/Dual/Single (memory-mapped) --------------------------------------------------------
 
 _FAST_READ = 0x0b
 _DIOFR = 0xbb
@@ -27,16 +37,59 @@ def _format_cmd(cmd, spi_width):
     return c
 
 
-class SpiFlashDualQuad(Module, AutoCSR):
-    def __init__(self, pads, dummy=15, div=2, endianness="big"):
+class SpiFlashCommon(Module):
+    def __init__(self, pads):
+        if not hasattr(pads, "clk"):
+            self.clk_primitive_needed = True
+            self.clk_primitive_registered = False
+            pads.clk = Signal()
+        self.pads = pads
+
+    def add_clk_primitive(self, device):
+        if not hasattr(self, "clk_primitive_needed"):
+            return
+        # Xilinx 7-series
+        if device[:3] == "xc7":
+            self.specials += Instance("STARTUPE2",
+                i_CLK=0,
+                i_GSR=0,
+                i_GTS=0,
+                i_KEYCLEARB=0,
+                i_PACK=0,
+                i_USRCCLKO=self.pads.clk,
+                i_USRCCLKTS=0,
+                i_USRDONEO=1,
+                i_USRDONETS=1)
+        # Lattice ECP5
+        elif device[:4] == "LFE5":
+            self.specials += Instance("USRMCLK",
+                i_USRMCLKI=self.pads.clk,
+                i_USRMCLKTS=0)
+        else:
+            raise NotImplementedError
+        self.clk_primitive_registered = True
+
+    def do_finalize(self):
+        if hasattr(self, "clk_primitive_needed"):
+            assert self.clk_primitive_registered == True
+
+
+class SpiFlashDualQuad(SpiFlashCommon, AutoCSR):
+    def __init__(self, pads, dummy=15, div=2, with_bitbang=True, endianness="big"):
         """
         Simple SPI flash.
         Supports multi-bit pseudo-parallel reads (aka Dual or Quad I/O Fast
         Read). Only supports mode0 (cpol=0, cpha=0).
         """
+        SpiFlashCommon.__init__(self, pads)
         self.bus = bus = wishbone.Interface()
         spi_width = len(pads.dq)
         assert spi_width >= 2
+
+        if with_bitbang:
+            self.bitbang = CSRStorage(4)
+            self.miso = CSRStatus()
+            self.bitbang_en = CSRStorage()
 
         # # #
 
@@ -63,12 +116,45 @@ class SpiFlashDualQuad(Module, AutoCSR):
         else:
             self.comb += bus.dat_r.eq(reverse_bytes(sr))
 
-        self.comb += [
+        hw_read_logic = [
             pads.clk.eq(clk),
             pads.cs_n.eq(cs_n),
             dq.o.eq(sr[-spi_width:]),
             dq.oe.eq(dq_oe)
         ]
+
+        if with_bitbang:
+            bitbang_logic = [
+                pads.clk.eq(self.bitbang.storage[1]),
+                pads.cs_n.eq(self.bitbang.storage[2]),
+
+                # In Dual/Quad mode, no single data pin is consistently
+                # an input or output thanks to dual/quad reads, so we need a bit
+                # to swap direction of the pins. Aside from this additional bit,
+                # bitbang mode is identical for Single/Dual/Quad; dq[0] is mosi
+                # and dq[1] is miso, meaning remaining data pin values don't
+                # appear in CSR registers.
+                If(self.bitbang.storage[3],
+                    dq.oe.eq(0)
+                ).Else(
+                    dq.oe.eq(1)
+                ),
+                If(self.bitbang.storage[1], # CPOL=0/CPHA=0 or CPOL=1/CPHA=1 only.
+                    self.miso.status.eq(dq.i[1])
+                ),
+                dq.o.eq(Cat(self.bitbang.storage[0], Replicate(1, spi_width-1)))
+            ]
+
+            self.comb += [
+                If(self.bitbang_en.storage,
+                    bitbang_logic
+                ).Else(
+                    hw_read_logic
+                )
+            ]
+
+        else:
+            self.comb += hw_read_logic
 
         if div < 2:
             raise ValueError("Unsupported value \'{}\' for div parameter for SpiFlash core".format(div))
@@ -116,13 +202,19 @@ class SpiFlashDualQuad(Module, AutoCSR):
         self.sync += timeline(bus.cyc & bus.stb & (i == div - 1), tseq)
 
 
-class SpiFlashSingle(Module, AutoCSR):
-    def __init__(self, pads, dummy=15, div=2, endianness="big"):
+class SpiFlashSingle(SpiFlashCommon, AutoCSR):
+    def __init__(self, pads, dummy=15, div=2, with_bitbang=True, endianness="big"):
         """
         Simple SPI flash.
         Supports 1-bit reads. Only supports mode0 (cpol=0, cpha=0).
         """
+        SpiFlashCommon.__init__(self, pads)
         self.bus = bus = wishbone.Interface()
+
+        if with_bitbang:
+            self.bitbang = CSRStorage(4)
+            self.miso = CSRStatus()
+            self.bitbang_en = CSRStorage()
 
         # # #
 
@@ -146,11 +238,32 @@ class SpiFlashSingle(Module, AutoCSR):
         else:
             self.comb += bus.dat_r.eq(reverse_bytes(sr))
 
-        self.comb += [
+        hw_read_logic = [
             pads.clk.eq(clk),
             pads.cs_n.eq(cs_n),
             pads.mosi.eq(sr[-1:])
         ]
+
+        if with_bitbang:
+            bitbang_logic = [
+                pads.clk.eq(self.bitbang.storage[1]),
+                pads.cs_n.eq(self.bitbang.storage[2]),
+                If(self.bitbang.storage[1], # CPOL=0/CPHA=0 or CPOL=1/CPHA=1 only.
+                    self.miso.status.eq(pads.miso)
+                ),
+                pads.mosi.eq(self.bitbang.storage[0])
+            ]
+
+            self.comb += [
+                If(self.bitbang_en.storage,
+                    bitbang_logic
+                ).Else(
+                    hw_read_logic
+                )
+            ]
+
+        else:
+            self.comb += hw_read_logic
 
         if div < 2:
             raise ValueError("Unsupported value \'{}\' for div parameter for SpiFlash core".format(div))
@@ -198,8 +311,35 @@ class SpiFlashSingle(Module, AutoCSR):
         self.sync += timeline(bus.cyc & bus.stb & (i == div - 1), tseq)
 
 
-def SpiFlash(pads, *args, **kw):
+def SpiFlash(pads, *args, **kwargs):
     if hasattr(pads, "mosi"):
-        return SpiFlashSingle(pads, *args, **kw)
+       return SpiFlashSingle(pads, *args, **kwargs)
     else:
-        return SpiFlashDualQuad(pads, *args, **kw)
+        return SpiFlashDualQuad(pads, *args, **kwargs)
+
+# Xilinx 7-Series FPGAs SPI Flash (non-memory-mapped) ----------------------------------------------
+
+class S7SPIFlash(Module, AutoCSR):
+    def __init__(self, pads, sys_clk_freq, spi_clk_freq=25e6):
+        self.submodules.spi = spi = SPIMaster(None, 40, sys_clk_freq, spi_clk_freq)
+        self.specials += Instance("STARTUPE2",
+                i_CLK=0,
+                i_GSR=0,
+                i_GTS=0,
+                i_KEYCLEARB=0,
+                i_PACK=0,
+                i_USRCCLKO=spi.pads.clk,
+                i_USRCCLKTS=0,
+                i_USRDONEO=1,
+                i_USRDONETS=1
+        )
+        if hasattr(pads, "vpp"):
+            pads.vpp.reset = 1
+        if hasattr(pads, "hold"):
+            pads.hold.reset = 1
+
+        self.comb += [
+            pads.cs_n.eq(spi.pads.cs_n),
+            pads.mosi.eq(spi.pads.mosi),
+            spi.pads.miso.eq(pads.miso)
+        ]

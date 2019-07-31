@@ -1,3 +1,7 @@
+# This file is Copyright (c) 2015 Sebastien Bourdeauducq <sb@m-labs.hk>
+# This file is Copyright (c) 2015-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# License: BSD
+
 from math import log2
 
 from migen import *
@@ -62,12 +66,11 @@ class SoCSDRAM(SoCCore):
         self.submodules.sdram = ControllerInjector(
             phy, geom_settings, timing_settings, **kwargs)
 
-        # TODO: modify mem_map to allow larger memories.
         main_ram_size = 2**(geom_settings.bankbits +
                             geom_settings.rowbits +
                             geom_settings.colbits)*phy.settings.databits//8
-        main_ram_size = min(main_ram_size, 256*1024*1024)
-        self.add_constant("L2_SIZE", self.l2_size)
+        main_ram_size = min(main_ram_size, 0x20000000) # FIXME: limit to 512MB for now
+        self.config["L2_SIZE"] = self.l2_size
 
         # add a Wishbone interface to the DRAM
         wb_sdram = wishbone.Interface()

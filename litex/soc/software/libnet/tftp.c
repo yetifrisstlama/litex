@@ -1,3 +1,12 @@
+// This file is Copyright (c) 2013 Werner Almesberger <werner@almesberger.net>
+// This file is Copyright (c) 2013-2015 Sebastien Bourdeauducq <sb@m-labs.hk>
+// This file is Copyright (c) 2014-2015 Florent Kermarec <florent@enjoy-digital.fr>
+// This file is Copyright (c) 2017 Greg Darke <greg@tsukasa.net.au>
+// This file is Copyright (c) 2018 Ewen McNeill <ewen@naos.co.nz>
+
+// License: BSD
+
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -107,6 +116,7 @@ int tftp_get(uint32_t ip, uint16_t server_port, const char *filename,
 	int tries;
 	int i;
 	int length_before;
+	int spin = 0;
 
 	if(!microudp_arp_resolve(ip))
 		return -1;
@@ -140,6 +150,10 @@ int tftp_get(uint32_t ip, uint16_t server_port, const char *filename,
 		if(length_before != total_length) {
 			i = 12000000;
 			length_before = total_length;
+			if ((total_length & 0x7fff) == 0) { // every 32K
+				putchar("|/-\\"[spin++ % 4]);
+				putchar('\b');
+			}
 		}
 		if(i-- == 0) {
 			microudp_set_callback(NULL);

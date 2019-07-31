@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# This file is Copyright (c) 2015-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2017 Pierre-Olivier Vauboin <po@lambdaconcept>
+# License: BSD
+
 import argparse
 
 from migen import *
@@ -13,7 +17,6 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.soc_sdram import *
 from litex.soc.integration.builder import *
 from litex.soc.cores import uart
-from litex.soc.integration.soc_core import mem_decoder
 
 from litedram.common import PhySettings
 from litedram.modules import MT48LC16M16
@@ -21,7 +24,7 @@ from litedram.phy.model import SDRAMPHYModel
 
 from liteeth.common import convert_ip
 from liteeth.phy.model import LiteEthPHYModel
-from liteeth.core.mac import LiteEthMAC
+from liteeth.mac import LiteEthMAC
 from liteeth.core import LiteEthUDPIPCore
 from liteeth.frontend.etherbone import LiteEthEtherbone
 
@@ -149,7 +152,7 @@ class SimSoC(SoCSDRAM):
             if with_etherbone:
                 ethmac = ClockDomainsRenamer({"eth_tx": "ethphy_eth_tx", "eth_rx":  "ethphy_eth_rx"})(ethmac)
             self.submodules.ethmac = ethmac
-            self.add_wb_slave(mem_decoder(self.mem_map["ethmac"]), self.ethmac.bus)
+            self.add_wb_slave(self.mem_map["ethmac"], self.ethmac.bus, 0x2000)
             self.add_memory_region("ethmac", self.mem_map["ethmac"] | self.shadow_base, 0x2000)
             self.add_csr("ethmac")
             self.add_interrupt("ethmac")
@@ -214,10 +217,10 @@ def main():
     sim_config = SimConfig(default_clk="sys_clk")
     sim_config.add_module("serial2console", "serial")
 
-    cpu_endianness = "big"
+    cpu_endianness = "little"
     if "cpu_type" in soc_kwargs:
-        if soc_kwargs["cpu_type"] in ["picorv32", "vexriscv"]:
-            cpu_endianness = "little"
+        if soc_kwargs["cpu_type"] in ["mor1kx", "lm32"]:
+            cpu_endianness = "big"
 
     if args.rom_init:
         soc_kwargs["integrated_rom_init"] = get_mem_data(args.rom_init, cpu_endianness)

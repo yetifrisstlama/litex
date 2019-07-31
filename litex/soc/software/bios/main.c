@@ -1,3 +1,19 @@
+// This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
+// This file is Copyright (c) 2015 Yann Sionneau <ys@m-labs.hk>
+// This file is Copyright (c) 2015 whitequark <whitequark@whitequark.org>
+// This file is Copyright (c) 2019 Ambroz Bizjak <ambrop7@gmail.com>
+// This file is Copyright (c) 2019 Caleb Jamison <cbjamo@gmail.com>
+// This file is Copyright (c) 2018 Dolu1990 <charles.papon.90@gmail.com>
+// This file is Copyright (c) 2018 Felix Held <felix-github@felixheld.de>
+// This file is Copyright (c) 2014 Florent Kermarec <florent@enjoy-digital.fr>
+// This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+// This file is Copyright (c) 2019 Gabriel L. Somlo <gsomlo@gmail.com>
+// This file is Copyright (c) 2018 Jean-François Nguyen <jf@lambdaconcept.fr>
+// This file is Copyright (c) 2018 Sergiusz Bazanski <q3k@q3k.org>
+// This file is Copyright (c) 2016 Tim 'mithro' Ansell <mithro@mithis.com>
+
+// License: BSD
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <console.h>
@@ -10,9 +26,14 @@
 
 #include <generated/csr.h>
 #include <generated/mem.h>
+#include <generated/git.h>
 
 #ifdef CSR_ETHMAC_BASE
 #include <net/microudp.h>
+#endif
+
+#ifdef CSR_SPIFLASH_BASE
+#include <spiflash.h>
 #endif
 
 #include "sdram.h"
@@ -120,6 +141,42 @@ static void mw(char *addr, char *value, char *count)
 	for (i=0;i<count2;i++) *addr2++ = value2;
 }
 
+#if (defined CSR_SPIFLASH_BASE && defined SPIFLASH_PAGE_SIZE)
+static void fw(char *addr, char *value, char *count)
+{
+	char *c;
+	unsigned int addr2;
+	unsigned int value2;
+	unsigned int count2;
+	unsigned int i;
+
+	if((*addr == 0) || (*value == 0)) {
+		printf("fw <offset> <value> [count]\n");
+		return;
+	}
+	addr2 = strtoul(addr, &c, 0);
+	if(*c != 0) {
+		printf("incorrect offset\n");
+		return;
+	}
+	value2 = strtoul(value, &c, 0);
+	if(*c != 0) {
+		printf("incorrect value\n");
+		return;
+	}
+	if(*count == 0) {
+		count2 = 1;
+	} else {
+		count2 = strtoul(count, &c, 0);
+		if(*c != 0) {
+			printf("incorrect count\n");
+			return;
+		}
+	}
+	for (i=0;i<count2;i++) write_to_flash(addr2, (unsigned char *)&value2, 4);
+}
+#endif
+
 static void mc(char *dstaddr, char *srcaddr, char *count)
 {
 	char *c;
@@ -194,6 +251,9 @@ static void help(void)
 	puts("mr         - read address space");
 	puts("mw         - write address space");
 	puts("mc         - copy address space");
+#if (defined CSR_SPIFLASH_BASE && defined SPIFLASH_PAGE_SIZE)
+	puts("fw         - write to flash");
+#endif
 	puts("");
 	puts("crc        - compute CRC32 of a part of the address space");
 	puts("ident      - display identifier");
@@ -249,10 +309,13 @@ static void do_command(char *c)
 	if(strcmp(token, "mr") == 0) mr(get_token(&c), get_token(&c));
 	else if(strcmp(token, "mw") == 0) mw(get_token(&c), get_token(&c), get_token(&c));
 	else if(strcmp(token, "mc") == 0) mc(get_token(&c), get_token(&c), get_token(&c));
+#if (defined CSR_SPIFLASH_BASE && defined SPIFLASH_PAGE_SIZE)
+	else if(strcmp(token, "fw") == 0) fw(get_token(&c), get_token(&c), get_token(&c));
+#endif
 	else if(strcmp(token, "crc") == 0) crc(get_token(&c), get_token(&c));
 	else if(strcmp(token, "ident") == 0) ident();
 
-#ifdef L2_SIZE
+#ifdef CONFIG_L2_SIZE
 	else if(strcmp(token, "flushl2") == 0) flush_l2_cache();
 #endif
 #ifdef CSR_CTRL_BASE
@@ -403,7 +466,9 @@ int main(int i, char **c)
 	printf(" BIOS built on "__DATE__" "__TIME__"\n");
 	crcbios();
 	printf("\n");
-
+	printf(" Migen git sha1: "MIGEN_GIT_SHA1"\n");
+	printf(" LiteX git sha1: "LITEX_GIT_SHA1"\n");
+	printf("\n");
 	printf("--============ \e[1mSoC info\e[0m ================--\n");
 	printf("\e[1mCPU\e[0m:       ");
 #ifdef __lm32__
@@ -421,11 +486,11 @@ int main(int i, char **c)
 #else
 	printf("Unknown");
 #endif
-	printf(" @ %dMHz\n", SYSTEM_CLOCK_FREQUENCY/1000000);
+	printf(" @ %dMHz\n", CONFIG_CLOCK_FREQUENCY/1000000);
 	printf("\e[1mROM\e[0m:       %dKB\n", ROM_SIZE/1024);
 	printf("\e[1mSRAM\e[0m:      %dKB\n", SRAM_SIZE/1024);
-#ifdef L2_SIZE
-	printf("\e[1mL2\e[0m:        %dKB\n", L2_SIZE/1024);
+#ifdef CONFIG_L2_SIZE
+	printf("\e[1mL2\e[0m:        %dKB\n", CONFIG_L2_SIZE/1024);
 #endif
 #ifdef MAIN_RAM_SIZE
 	printf("\e[1mMAIN-RAM\e[0m:  %dKB\n", MAIN_RAM_SIZE/1024);
@@ -433,7 +498,7 @@ int main(int i, char **c)
 	printf("\n");
 
 	printf("--========= \e[1mPeripherals init\e[0m ===========--\n");
-#ifdef CSR_ETHPHY_CRG_RESET_ADDR
+#ifdef CSR_ETHMAC_BASE
 	eth_init();
 #endif
 #ifdef CSR_SDRAM_BASE

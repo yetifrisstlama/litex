@@ -1,3 +1,7 @@
+# This file is Copyright (c) 2018 William D. Jones <thor0505@comcast.net>
+# This file is Copyright (c) 2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# License: BSD
+
 from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
 from litex.build.lattice.programmer import TinyProgProgrammer
@@ -59,6 +63,7 @@ class Platform(LatticePlatform):
 
     def __init__(self):
         LatticePlatform.__init__(self, "ice40-lp8k-cm81", _io, _connectors, toolchain="icestorm")
+        self.add_extension(serial)
 
     def create_programmer(self):
         return TinyProgProgrammer()

@@ -2,18 +2,17 @@
                       / /  (_) /____ | |/_/
                      / /__/ / __/ -_)>  <
                     /____/_/\__/\__/_/|_|
-                         Migen inside
+                 Build your hardware, easily!
 
-                Build your hardware, easily!
               Copyright 2012-2019 / EnjoyDigital
 
 [> Intro
 --------
-LiteX is a FPGA design/SoC builder that can be used to build cores, create
-SoCs and full FPGA designs.
+LiteX is a MiSoC-based SoC builder using Migen as Python DSL that can be used
+to create SoCs and full FPGA designs.
 
-LiteX is based on Migen and provides specific building/debugging tools for
-a higher level of abstraction and compatibily with the LiteX core ecosystem.
+LiteX provides specific building/debugging tools for high level of abstraction
+and compatibily with the LiteX core ecosystem.
 
 Think of Migen as a toolbox to create FPGA designs in Python and LiteX as a
 toolbox to create/develop/debug FPGA SoCs in Python.
@@ -35,8 +34,8 @@ Typical LiteX design flow:
 +----------------------+  |           |
 |LiteX Cores Ecosystem +-->           |
 +----------------------+  +-^-------^-+
- (Eth, SATA, DRAM, USB,     |       |
-  PCIe, Video, etc...)      +       +
+ (Eth, SATA, DRAM, PCIe,    |       |
+  Video, etc...)            +       +
                            board   target
                            file    file
 
@@ -48,7 +47,6 @@ and is compatible with the LiteX's Cores Ecosystem:
 - LiteEth: https://github.com/enjoy-digital/liteeth
 - LitePCIe: https://github.com/enjoy-digital/litepcie
 - LiteSATA: https://github.com/enjoy-digital/litesata
-- LiteUSB: https://github.com/enjoy-digital/liteusb
 - LiteSDCard: https://github.com/enjoy-digital/litesdcard
 - LiteICLink: https://github.com/enjoy-digital/liteiclink
 - LiteJESD204B: https://github.com/enjoy-digital/litejesd204b
@@ -72,7 +70,33 @@ soc:
 
 boards:
   Provides platforms and targets for the supported boards. All Migen's platforms
-  can also be used in LiteX.
+  can also be used in LiteX. The boards present in the LiteX repository are the
+  official ones that are used for development/CI. More boards are available at:
+  https://github.com/litex-hub/litex-boards
+
+[> Papers, Presentations, Tutorials, Links
+------------------------------------------
+FPGA lessons/tutorials:
+- https://github.com/enjoy-digital/fpga_101
+
+OSDA paper/slides:
+- https://osda.gitlab.io/19/1.1.pdf
+- https://osda.gitlab.io/19/1.1-slides.pdf
+
+Linux on LiteX-Vexriscv:
+- https://github.com/litex-hub/linux-on-litex-vexriscv
+
+RISC-V Getting Started Guide:
+- https://risc-v-getting-started-guide.readthedocs.io/en/latest/
+
+LiteX vs. Vivado First Impressions:
+- https://www.bunniestudios.com/blog/?p=5018
+
+35C3 - Snakes and Rabbits - How CCC shaped an open hardware success:
+- https://www.youtube.com/watch?v=AlmVxR0417c
+
+Tim has to many projects - LatchUp Edition:
+https://www.youtube.com/watch?v=v7WrTmexod0
 
 [> Very Quick start guide (for newcomers)
 -----------------------------------------
@@ -84,9 +108,6 @@ and multiple examples provided! You can even run Linux on your FPGA using LiteX
 very easily!
 
 Migen documentation can be found here: https://m-labs.hk/migen/manual
-
-FPGA lessons/tutorials can be found at: https://github.com/enjoy-digital/fpga_101
-
 
 [> Quick start guide (for advanced users)
 -----------------------------------------
