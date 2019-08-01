@@ -109,15 +109,27 @@ void read_handler(int fd, short event, void *arg)
   struct session_s *s = (struct session_s*)arg;
   char buffer[1024];
   ssize_t read_len;
+  int i, ret;
 
-  int i;
-
+  // printf("\nread_handler(%d, %d) ", fd, event);
   read_len = read(fd, buffer, 1024);
+  if (read_len == 0) {
+    // Received EOF, remote has closed the connection
+    ret = event_del(s->ev);
+    if (ret != 0) {
+      eprintf("read_handler(): Error removing event %d!\n", event);
+      return;
+    }
+    event_free(s->ev);
+    s->ev = NULL;
+  }
   for(i = 0; i < read_len; i++)
   {
+    // printf("%02x ", (uint8_t)buffer[i]);
     s->databuf[(s->data_start +  s->datalen ) % 2048] = buffer[i];
     s->datalen++;
   }
+  // printf("\n");
 }
 
 static void event_handler(int fd, short event, void *arg)
@@ -140,7 +152,7 @@ static void
 accept_error_cb(struct evconnlistener *listener, void *ctx)
 {
   struct event_base *base = evconnlistener_get_base(listener);
-  eprintf("ERRROR\n");
+  eprintf("ERROR\n");
 
   event_base_loopexit(base, NULL);
 }
@@ -242,7 +254,8 @@ static int serial2tcp_tick(void *sess)
 
   *s->rx_valid=0;
   if(s->datalen) {
-    *s->rx=s->databuf[s->data_start];
+    c = s->databuf[s->data_start];
+    *s->rx = c;
     s->data_start = (s->data_start + 1) % 2048;
     s->datalen--;
     *s->rx_valid=1;
