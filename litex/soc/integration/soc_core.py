@@ -316,7 +316,7 @@ class SoCCore(Module):
             if uart_stub:
                 self.submodules.uart  = uart.UARTStub()
             else:
-                self.submodules.uart_phy = uart.RS232PHY(platform.request(uart_name), clk_freq, uart_baudrate)
+                self.submodules.uart_phy = uart.UARTPHY(platform.request(uart_name), clk_freq, uart_baudrate)
                 self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy))
             self.add_csr("uart_phy", allow_user_defined=True)
             self.add_csr("uart", allow_user_defined=True)
@@ -502,7 +502,7 @@ class SoCCore(Module):
         if self.cpu_type is not None:
             for mem in "rom", "sram":
                 if mem not in registered_mems:
-                    raise FinalizeError("CPU needs a {} to be registered with SoC.register_mem()".format(mem))
+                    raise FinalizeError("CPU needs \"{}\" to be registered with SoC.register_mem()".format(mem))
 
         # Add the Wishbone Masters/Slaves interconnect
         if len(self._wb_masters):
