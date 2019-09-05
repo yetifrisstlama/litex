@@ -13,8 +13,13 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 
 # name,  (url, recursive clone, develop)
 repos = [
+    # HDL
     ("migen",      ("http://github.com/m-labs/",        True,  True)),
+
+    # LiteX SoC builder
     ("litex",      (LITEX_ROOT_URL, True,  True)),
+
+    # LiteX cores ecosystem
     ("liteeth",    (LITEOTHER_ROOT_URL, False, True)),
     ("litedram",   (LITEOTHER_ROOT_URL, False, True)),
     ("litepcie",   (LITEOTHER_ROOT_URL, False, True)),
@@ -23,6 +28,9 @@ repos = [
     ("liteiclink", (LITEOTHER_ROOT_URL, False, True)),
     ("litevideo",  (LITEOTHER_ROOT_URL, False, True)),
     ("litescope",  (LITEOTHER_ROOT_URL, False, True)),
+
+    # LiteX boards support
+    ("litex-boards",   ("https://github.com/litex-hub/", False, True)),
 ]
 repos = OrderedDict(repos)
 

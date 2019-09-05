@@ -52,10 +52,13 @@ sfl_prompt_ack = b"\x06"
 sfl_magic_req = b"sL5DdSMmkekro\n"
 sfl_magic_ack = b"z6IHG7cYDID6o\n"
 
+sfl_payload_length = 251
+
 # General commands
-sfl_cmd_abort = b"\x00"
-sfl_cmd_load  = b"\x01"
-sfl_cmd_jump  = b"\x02"
+sfl_cmd_abort       = b"\x00"
+sfl_cmd_load        = b"\x01"
+sfl_cmd_load_no_crc = b"\x03"
+sfl_cmd_jump        = b"\x02"
 
 # Replies
 sfl_ack_success  = b"K"
@@ -124,7 +127,7 @@ class SFLFrame:
 
 
 class LiteXTerm:
-    def __init__(self, serial_boot, kernel_image, kernel_address, json_images):
+    def __init__(self, serial_boot, kernel_image, kernel_address, json_images, no_crc):
         self.serial_boot = serial_boot
         assert not (kernel_image is not None and json_images is not None)
         self.mem_regions = {}
@@ -136,6 +139,7 @@ class LiteXTerm:
             self.mem_regions.update(json.load(f))
             self.boot_address = self.mem_regions[list(self.mem_regions.keys())[-1]]
             f.close()
+        self.no_crc = no_crc
 
         self.reader_alive = False
         self.writer_alive = False
@@ -174,15 +178,18 @@ class LiteXTerm:
         retry = 1
         while retry:
             self.port.write(frame.encode())
-            # Get the reply from the device
-            reply = self.port.read()
-            if reply == sfl_ack_success:
-                retry = 0
-            elif reply == sfl_ack_crcerror:
-                retry = 1
+            if not self.no_crc:
+                # Get the reply from the device
+                reply = self.port.read()
+                if reply == sfl_ack_success:
+                    retry = 0
+                elif reply == sfl_ack_crcerror:
+                    retry = 1
+                else:
+                    print("[LXTERM] Got unknown reply '{}' from the device, aborting.".format(reply))
+                    return 0
             else:
-                print("[LXTERM] Got unknown reply '{}' from the device, aborting.".format(reply))
-                return 0
+                retry = 0
         return 1
 
     def upload(self, filename, address):
@@ -199,8 +206,8 @@ class LiteXTerm:
                                                     100*position//length))
             sys.stdout.flush()
             frame = SFLFrame()
-            frame_data = data[:251]
-            frame.cmd = sfl_cmd_load
+            frame_data = data[:sfl_payload_length]
+            frame.cmd = sfl_cmd_load if not self.no_crc else sfl_cmd_load_no_crc
             frame.payload = current_address.to_bytes(4, "big")
             frame.payload += frame_data
             if self.send_frame(frame) == 0:
@@ -208,7 +215,7 @@ class LiteXTerm:
             current_address += len(frame_data)
             position += len(frame_data)
             try:
-                data = data[251:]
+                data = data[sfl_payload_length:]
             except:
                 data = []
         end = time.time()
@@ -254,12 +261,8 @@ class LiteXTerm:
         try:
             while self.reader_alive:
                 c = self.port.read()
-                if c == b"\r":
-                    sys.stdout.buffer.write(b"\n")
-                else:
-                    sys.stdout.buffer.write(c)
+                sys.stdout.buffer.write(c)
                 sys.stdout.flush()
-
                 if len(self.mem_regions):
                     if self.serial_boot and self.detect_prompt(c):
                         self.answer_prompt()
@@ -330,12 +333,13 @@ def _get_args():
     parser.add_argument("--kernel", default=None, help="kernel image")
     parser.add_argument("--kernel-adr", default="0x40000000", help="kernel address")
     parser.add_argument("--images", default=None, help="json description of the images to load to memory")
+    parser.add_argument("--no-crc", default=False, action='store_true', help="disable CRC check (speedup serialboot)")
     return parser.parse_args()
 
 
 def main():
     args = _get_args()
-    term = LiteXTerm(args.serial_boot, args.kernel, args.kernel_adr, args.images)
+    term = LiteXTerm(args.serial_boot, args.kernel, args.kernel_adr, args.images, args.no_crc)
     term.open(args.port, int(float(args.speed)))
     term.console.configure()
     term.start()
