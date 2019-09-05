@@ -6,7 +6,7 @@ from collections import OrderedDict
 
 
 # This is needed for eg: when you are installing from a fork
-LITEX_ROOT_URL = os.getenv("LITEX_ROOT_URL", "http://github.com/enjoy-digital/")
+LITEX_ROOT_URL = os.getenv("LITEX_ROOT_URL", "http://github.com/yetifrisstlama/")
 LITEOTHER_ROOT_URL = os.getenv("LITEOTHER_ROOT_URL", "http://github.com/enjoy-digital/")
 
 current_path = os.path.dirname(os.path.realpath(__file__))
