@@ -183,7 +183,7 @@ class XilinxVivadoToolchain:
         tcl.append("report_drc -file {}_drc.rpt".format(build_name))
         tcl.append("report_timing_summary -datasheet -max_paths 10 -file {}_timing.rpt".format(build_name))
         tcl.append("report_power -file {}_power.rpt".format(build_name))
-        tcl.append('report_methodology -name ultrafast_methodology_1 -file {}_methodology.rpt'.format(build_name))
+        tcl.append('report_methodology -file {}_methodology.rpt'.format(build_name))
         for bitstream_command in self.bitstream_commands:
             tcl.append(bitstream_command.format(build_name=build_name))
         tcl.append("write_bitstream -force {}.bit ".format(build_name))
@@ -229,7 +229,7 @@ class XilinxVivadoToolchain:
         # AsyncResetSynchronizer FFs
         platform.add_platform_command(
             "set_max_delay 2 "
-            "-from [get_pins -quiet -filter {{REF_PIN_NAME == Q}} "
+            "-from [get_pins -quiet -filter {{REF_PIN_NAME == C}} "
                 "-of [get_cells -quiet -filter {{ars_ff1 == TRUE}}]] "
             "-to [get_pins -quiet -filter {{REF_PIN_NAME == D}} "
                 "-of [get_cells -quiet -filter {{ars_ff2 == TRUE}}]]"
