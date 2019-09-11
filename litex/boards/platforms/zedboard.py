@@ -42,7 +42,7 @@ _io = [
     ("ps7_clk", 0, Pins("F7")),
     ("ps7_porb", 0, Pins("B5")),
     ("ps7_srstb", 0, Pins("C9")),
-    ("ps7_mio", 0, Pins(54)),
+    ("ps7_mio", 0, Pins("G6 A1 A2 F6 E4 A3 A4 D5 E5 C4 G7 B4 C5 A6 B6 E6 D6 E9 A7 E10 A8 F11 A14 E11 B7 F12 A13 D7 A12 E8 A11 F9 C7 G13 B12 F14 A9 B14 F13 C13 E14 C8 D8 B11 E13 B9 D12 B10 D11 C14 D13 C10 D10 C12")),
     ("ps7_ddram", 0,
         Subsignal("addr",
                Pins("M4 M5 K4 L4 K6 K5 J7 J6 J5 H5 J3 G5 H4 F4 G4")),
