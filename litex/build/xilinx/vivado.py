@@ -212,20 +212,22 @@ class XilinxVivadoToolchain:
     def _constrain(self, platform):
         # The asynchronous input to a MultiReg is a false path
         platform.add_platform_command(
-            "set_false_path -quiet "
-            "-to [get_nets -quiet -filter {{mr_ff == TRUE}}]"
+            'set_false_path '
+            '-to [get_pins -filter {{REF_PIN_NAME == D}} '
+            '-of [get_cells -filter {{mr_ff == TRUE}}]]'
+            # "-to [get_nets -quiet -filter {{mr_ff == TRUE}}]"
         )
         # The asychronous reset input to the AsyncResetSynchronizer is a false
         # path
         platform.add_platform_command(
-            "set_false_path -quiet "
+            "set_false_path "
             "-to [get_pins -quiet -filter {{REF_PIN_NAME == PRE}} "
                 "-of [get_cells -quiet -filter {{ars_ff1 == TRUE || ars_ff2 == TRUE}}]]"
         )
         # clock_period-2ns to resolve metastability on the wire between the
         # AsyncResetSynchronizer FFs
         platform.add_platform_command(
-            "set_max_delay 2 -quiet "
+            "set_max_delay 2 "
             "-from [get_pins -quiet -filter {{REF_PIN_NAME == Q}} "
                 "-of [get_cells -quiet -filter {{ars_ff1 == TRUE}}]] "
             "-to [get_pins -quiet -filter {{REF_PIN_NAME == D}} "
