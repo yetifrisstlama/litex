@@ -27,12 +27,12 @@ def axi_fifo_ctrl_layout():
 
 class SoCZynq(SoCCore):
     SoCCore.mem_map["csr"] = 0x00000000
-    def __init__(self, platform, clk_freq, ps7_name, **kwargs):
+    def __init__(self, platform, clk_freq, ps7_name, add_reset=True, **kwargs):
         self.ps7_name = ps7_name
         SoCCore.__init__(self, platform, clk_freq, cpu_type=None, shadow_base=0x00000000, **kwargs)
 
         # PS7 (Minimal) ----------------------------------------------------------------------------
-        fclk_reset0_n = Signal()
+        self.fclk_reset0_n = Signal()
         ps7_ddram_pads = platform.request("ps7_ddram")
         self.ps7_params = dict(
             # clk/rst
@@ -73,9 +73,10 @@ class SoCZynq(SoCCore):
 
             # fabric clk/rst
             o_FCLK_CLK0     = ClockSignal("sys"),
-            o_FCLK_RESET0_N = fclk_reset0_n
+            o_FCLK_RESET0_N = self.fclk_reset0_n
         )
-        self.comb += ResetSignal("sys").eq(~fclk_reset0_n)
+        if add_reset:
+            self.comb += ResetSignal("sys").eq(~self.fclk_reset0_n)
         platform.add_ip(os.path.join("ip", ps7_name + ".xci"))
 
     # GP0 ------------------------------------------------------------------------------------------
