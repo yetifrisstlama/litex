@@ -33,6 +33,10 @@ class RemoteClient(EtherboneIPC, CSRBuilder):
         del self.socket
 
     def read(self, addr, length=None):
+        """
+        addr = start address in [bytes], should be 32 bit aligned
+        length = number of 32 bit words to read. Maximum is 255.
+        """
         length_int = 1 if length is None else length
         # prepare packet
         record = EtherboneRecord()
@@ -53,6 +57,22 @@ class RemoteClient(EtherboneIPC, CSRBuilder):
             for i, data in enumerate(datas):
                 print("read {:08x} @ {:08x}".format(data, addr + 4*i))
         return datas[0] if length is None else datas
+
+    def big_read(self, addr, length, chunk_size=255):
+        """
+        read data of arbitrary length in chunks
+        addr = start address in [bytes], should be 32 bit aligned
+        length = number of 32 bit words to read
+        chunk_size = how many words to read in one Etherbone transaction
+        """
+        dats = []
+        while length > 0:
+            temp = self.read(addr, min(chunk_size, length))
+            dats.append(temp)
+            addr += len(temp) * 4
+            length -= len(temp)
+        # return hstack(dats)
+        return [i for dat in dats for i in dat]
 
     def write(self, addr, datas):
         datas = datas if isinstance(datas, list) else [datas]
