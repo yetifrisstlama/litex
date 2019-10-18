@@ -34,6 +34,8 @@ _layout = [
 
 class Interface(Record):
     def __init__(self, data_width=32, adr_width=30):
+        self.data_width = data_width
+        self.adr_width  = adr_width
         Record.__init__(self, set_layout_parameters(_layout,
             adr_width=adr_width,
             data_width=data_width,
@@ -484,7 +486,7 @@ class Converter(Module):
             upconverter = UpConverter(master, slave)
             self.submodules += upconverter
         else:
-            master.connect(slave)
+            self.comb += master.connect(slave)
 
 
 class Cache(Module):

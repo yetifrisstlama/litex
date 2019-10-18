@@ -30,7 +30,7 @@ extern void boot_helper(unsigned long r1, unsigned long r2, unsigned long r3, un
 
 static void __attribute__((noreturn)) boot(unsigned long r1, unsigned long r2, unsigned long r3, unsigned long addr)
 {
-	printf("Executing booted program at 0x%08x\n", addr);
+	printf("Executing booted program at 0x%08x\n\n", addr);
 	printf("--============= \e[1mLiftoff!\e[0m ===============--\n");
 	uart_sync();
 	irq_setmask(0);
@@ -43,6 +43,15 @@ static void __attribute__((noreturn)) boot(unsigned long r1, unsigned long r2, u
 #ifdef CONFIG_L2_SIZE
 	flush_l2_cache();
 #endif
+
+#if defined(CONFIG_CPU_TYPE_MOR1KX) && defined(CONFIG_CPU_VARIANT_LINUX)
+	/* Mainline Linux expects to have exception vector base address set to the
+	 * base address of Linux kernel; it also expects to be run with an offset
+	 * of 0x100. */
+	mtspr(SPR_EVBAR, addr);
+	addr += 0x100;
+#endif
+
 	boot_helper(r1, r2, r3, addr);
 	while(1);
 }

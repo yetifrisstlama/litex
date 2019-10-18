@@ -2,6 +2,29 @@
 # This file is Copyright (c) 2015-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # License: BSD
 
+from migen import *
+
+# CPU ----------------------------------------------------------------------------------------------
+
+class CPU(Module):
+    name                 = None
+    data_width           = None
+    endianness           = None
+    gcc_triple           = None
+    gcc_flags            = None
+    clang_triple         = None
+    clang_flags          = None
+    linker_output_format = None
+    interrupts           = {}
+    mem_map              = {}
+    io_regions           = {}
+
+class CPUNone(CPU):
+    data_width           = 32
+    reset_address        = 0x00000000
+    io_regions           = {0x00000000: 0xf0000000} # origin, length
+
+# CPUS ---------------------------------------------------------------------------------------------
 
 from litex.soc.cores.cpu.lm32 import LM32
 from litex.soc.cores.cpu.mor1kx import MOR1KX
@@ -9,6 +32,15 @@ from litex.soc.cores.cpu.picorv32 import PicoRV32
 from litex.soc.cores.cpu.vexriscv import VexRiscv
 from litex.soc.cores.cpu.minerva import Minerva
 from litex.soc.cores.cpu.rocket import RocketRV64
+
+CPUS = {
+    "lm32"       : LM32,
+    "mor1kx"     : MOR1KX,
+    "picorv32"   : PicoRV32,
+    "vexriscv"   : VexRiscv,
+    "minerva"    : Minerva,
+    "rocket"     : RocketRV64,
+}
 
 # CPU Variants/Extensions Definition ---------------------------------------------------------------
 
@@ -47,7 +79,6 @@ Possible Values:
         ValueError.__init__(self, msg)
 
 # CPU Variants/Extensions Check/Format -------------------------------------------------------------
-
 
 def check_format_cpu_variant(variant):
 	# Support the old style which used underscore for separator

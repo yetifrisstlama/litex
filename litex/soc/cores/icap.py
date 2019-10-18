@@ -7,6 +7,7 @@ from migen.genlib.misc import timeline
 from migen.genlib.cdc import PulseSynchronizer
 
 from litex.soc.interconnect.csr import *
+from litex.soc.interconnect import stream
 
 # Xilinx 7-series ----------------------------------------------------------------------------------
 
@@ -24,22 +25,22 @@ class ICAP(Module, AutoCSR):
 
         # # #
 
-        # Create slow icap clk (sys_clk/2) ---------------------------------------------------------
+        # Create slow icap clk (sys_clk/16) ---------------------------------------------------------
         self.clock_domains.cd_icap = ClockDomain()
         icap_clk_counter = Signal(4)
         self.sync += icap_clk_counter.eq(icap_clk_counter + 1)
         self.sync += self.cd_icap.clk.eq(icap_clk_counter[3])
 
-        # Resychronize send pulse to icap domain ---------------------------------------------------
+        # Resynchronize send pulse to icap domain ---------------------------------------------------
         ps_send = PulseSynchronizer("sys", "icap")
         self.submodules += ps_send
         self.comb += [ps_send.i.eq(self.send.re)]
 
-        # generate icap bitstream write sequence
-        _csib = Signal(reset=1)
-        _i = Signal(32)
-        _addr = self.addr.storage << 13
-        _data = self.data.storage
+        # Generate icap bitstream write sequence
+        self._csib = _csib = Signal(reset=1)
+        self._i    = _i =  Signal(32)
+        _addr      = self.addr.storage << 13
+        _data      = self.data.storage
         self.sync.icap += [
             _i.eq(0xffffffff), # dummy
             timeline(ps_send.o, [
@@ -60,10 +61,65 @@ class ICAP(Module, AutoCSR):
             ])
         ]
 
-        self._csib = _csib
-        self._i = _i
+        # ICAP instance
+        if not simulation:
+            self.specials += [
+                Instance("ICAPE2",
+                    p_ICAP_WIDTH="X32",
+                    i_CLK=ClockSignal("icap"),
+                    i_CSIB=_csib,
+                    i_RDWRB=0,
+                    i_I=Cat(*[_i[8*i:8*(i+1)][::-1] for i in range(4)]),
+                )
+            ]
 
-        # icap instance
+
+class ICAPBitstream(Module, AutoCSR):
+    """ICAP Bitstream
+
+    Allow sending bitstreams to ICAPE2 of Xilinx 7-Series FPGAs.
+
+    The CPU can push stream of data to the ICAPE2 by reading `sink_ready` CSR to verify that there is
+    space available in the FIFO; then write the data to `sink_data` register. Each word written to the
+    FIFO is transmitted to the ICAPE2 using the slow icap_clk (with expected bit/byte reordering).
+
+    The CPU accesses/FIFO must be fast/large enough to ensure there is no gap in the stream sent to
+    the ICAPE2.
+    """
+    def __init__(self, fifo_depth=8, icap_clk_div=4, simulation=False):
+        self.sink_data  = CSRStorage(32)
+        self.sink_ready = CSRStatus()
+
+        # # #
+
+        # Create slow icap_clk (sys_clk/4) ---------------------------------------------------------
+        icap_clk_counter = Signal(log2_int(icap_clk_div))
+        self.clock_domains.cd_icap = ClockDomain()
+        self.sync += icap_clk_counter.eq(icap_clk_counter + 1)
+        self.sync += self.cd_icap.clk.eq(icap_clk_counter[-1])
+
+        # FIFO (sys_clk to icap_clk) ---------------------------------------------------------------
+        fifo = stream.AsyncFIFO([("data", 32)], fifo_depth)
+        fifo = ClockDomainsRenamer({"write": "sys", "read": "icap"})(fifo)
+        self.submodules += fifo
+        self.comb += [
+            fifo.sink.valid.eq(self.sink_data.re),
+            fifo.sink.data.eq(self.sink_data.storage),
+            self.sink_ready.status.eq(fifo.sink.ready),
+        ]
+
+        # Generate ICAP commands -------------------------------------------------------------------
+        self._csib = _csib = Signal(reset=1)
+        self._i    =    _i = Signal(32, reset=0xffffffff)
+        self.comb += [
+            fifo.source.ready.eq(1),
+            If(fifo.source.valid,
+                _csib.eq(0),
+                _i.eq(fifo.source.data)
+            )
+        ]
+
+        # ICAP instance ----------------------------------------------------------------------------
         if not simulation:
             self.specials += [
                 Instance("ICAPE2",

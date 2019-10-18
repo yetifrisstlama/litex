@@ -559,7 +559,6 @@ int main(int i, char **c)
 	printf("\e[1m     /____/_/\\__/\\__/_/|_|\e[0m\n");
 	printf("\n");
 	printf(" (c) Copyright 2012-2019 Enjoy-Digital\n");
-	printf(" (c) Copyright 2007-2015 M-Labs Ltd\n");
 	printf("\n");
 	printf(" BIOS built on "__DATE__" "__TIME__"\n");
 	crcbios();
@@ -567,7 +566,7 @@ int main(int i, char **c)
 	printf(" Migen git sha1: "MIGEN_GIT_SHA1"\n");
 	printf(" LiteX git sha1: "LITEX_GIT_SHA1"\n");
 	printf("\n");
-	printf("--============ \e[1mSoC info\e[0m ================--\n");
+	printf("--=============== \e[1mSoC\e[0m ==================--\n");
 	printf("\e[1mCPU\e[0m:       ");
 #ifdef __lm32__
 	printf("LM32");
@@ -595,7 +594,9 @@ int main(int i, char **c)
 #endif
 	printf("\n");
 
-	printf("--========= \e[1mPeripherals init\e[0m ===========--\n");
+	sdr_ok = 1;
+#if defined(CSR_ETHMAC_BASE) || defined(CSR_SDRAM_BASE)
+	printf("--========== \e[1mInitialization\e[0m ============--\n");
 #ifdef CSR_ETHMAC_BASE
 	eth_init();
 #endif
@@ -604,16 +605,15 @@ int main(int i, char **c)
 #else
 #ifdef MAIN_RAM_TEST
 	sdr_ok = memtest();
-#else
-	sdr_ok = 1;
 #endif
 #endif
 	if (sdr_ok !=1)
 		printf("Memory initialization failed\n");
 	printf("\n");
+#endif
 
 	if(sdr_ok) {
-		printf("--========== \e[1mBoot sequence\e[0m =============--\n");
+		printf("--============== \e[1mBoot\e[0m ==================--\n");
 		boot_sequence();
 		printf("\n");
 	}

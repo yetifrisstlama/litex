@@ -1,5 +1,5 @@
 # This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
-# This file is Copyright (c) 2014-2018 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # This file is Copyright (c) 2015 Yann Sionneau <ys@m-labs.hk>
 # License: BSD
 
@@ -266,8 +266,8 @@ class GenericPlatform:
         if name is None:
             name = self.__module__.split(".")[-1]
         self.name = name
-        self.sources = set()
-        self.verilog_include_paths = set()
+        self.sources = []
+        self.verilog_include_paths = []
         self.finalized = False
 
     def request(self, *args, **kwargs):
@@ -322,19 +322,16 @@ class GenericPlatform:
     def add_source(self, filename, language=None, library=None):
         if language is None:
             language = tools.language_by_filename(filename)
-        if language is None:
-            language = "verilog"
-
         if library is None:
             library = "work"
 
-        self.sources.add((os.path.abspath(filename), language, library))
+        self.sources.append((os.path.abspath(filename), language, library))
 
     def add_sources(self, path, *filenames, language=None, library=None):
         for f in filenames:
             self.add_source(os.path.join(path, f), language, library)
 
-    def add_source_dir(self, path, recursive=True, library=None):
+    def add_source_dir(self, path, recursive=True, language=None, library=None):
         dir_files = []
         if recursive:
             for root, dirs, files in os.walk(path):
@@ -345,12 +342,14 @@ class GenericPlatform:
                 if os.path.isfile(os.path.join(path, item)):
                     dir_files.append(os.path.join(path, item))
         for filename in dir_files:
-            language = tools.language_by_filename(filename)
-            if language is not None:
-                self.add_source(filename, language, library)
+            _language = language
+            if _language is None:
+                _language = tools.language_by_filename(filename)
+            if _language is not None:
+                self.add_source(filename, _language, library)
 
     def add_verilog_include_path(self, path):
-        self.verilog_include_paths.add(os.path.abspath(path))
+        self.verilog_include_paths.append(os.path.abspath(path))
 
     def resolve_signals(self, vns):
         # resolve signal names in constraints

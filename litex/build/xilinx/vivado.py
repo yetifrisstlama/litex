@@ -126,10 +126,16 @@ class XilinxVivadoToolchain:
             # "-include_dirs {}" crashes Vivado 2016.4
             for filename, language, library in sources:
                 filename_tcl = "{" + filename + "}"
-                tcl.append("add_files " + filename_tcl)
-                if language == "vhdl":
+                if (language == "systemverilog"):
+                    tcl.append("read_verilog -sv " + filename_tcl)
+                elif (language == "verilog"):
+                    tcl.append("read_verilog " + filename_tcl)
+                elif (language == "vhdl"):
+                    tcl.append("read_vhdl " + filename_tcl)
                     tcl.append("set_property library {} [get_files {}]"
                                .format(library, filename_tcl))
+                else:
+                    tcl.append("add_files " + filename_tcl)
         for filename in edifs:
             filename_tcl = "{" + filename + "}"
             tcl.append("read_edif " + filename_tcl)
@@ -253,7 +259,8 @@ class XilinxVivadoToolchain:
         named_sc, named_pc = platform.resolve_signals(v_output.ns)
         v_file = build_name + ".v"
         v_output.write(v_file)
-        sources = platform.sources | {(v_file, "verilog", "work")}
+        platform.add_source(v_file)
+        sources = platform.sources
         edifs = platform.edifs
         ips = platform.ips
         self._build_batch(platform, sources, edifs, ips, build_name, synth_mode, enable_xpm)
@@ -276,3 +283,10 @@ class XilinxVivadoToolchain:
     def add_false_path_constraint(self, platform, from_, to):
         if (to, from_) not in self.false_paths:
             self.false_paths.add((from_, to))
+
+def vivado_build_args(parser):
+    parser.add_argument("--synth-mode", default="vivado", help="synthesis mode (vivado or yosys, default=vivado)")
+
+
+def vivado_build_argdict(args):
+    return {"synth_mode": args.synth_mode}

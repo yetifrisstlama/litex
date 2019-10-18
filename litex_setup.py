@@ -28,6 +28,7 @@ repos = [
     ("liteiclink", (LITEOTHER_ROOT_URL, False, True)),
     ("litevideo",  (LITEOTHER_ROOT_URL, False, True)),
     ("litescope",  (LITEOTHER_ROOT_URL, False, True)),
+    ("litejesd204b",(LITEOTHER_ROOT_URL, False, True)),
 
     # LiteX boards support
     ("litex-boards",   ("https://github.com/litex-hub/", False, True)),

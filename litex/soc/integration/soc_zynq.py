@@ -29,7 +29,7 @@ class SoCZynq(SoCCore):
     SoCCore.mem_map["csr"] = 0x00000000
     def __init__(self, platform, clk_freq, ps7_name, add_reset=True, **kwargs):
         self.ps7_name = ps7_name
-        SoCCore.__init__(self, platform, clk_freq, cpu_type=None, shadow_base=0x00000000, **kwargs)
+        SoCCore.__init__(self, platform, clk_freq, cpu_type=None, **kwargs)
 
         # PS7 (Minimal) ----------------------------------------------------------------------------
         self.fclk_reset0_n = Signal()
@@ -213,7 +213,7 @@ class SoCZynq(SoCCore):
         self.specials += Instance(self.ps7_name, **self.ps7_params)
 
     def generate_software_header(self, filename):
-        csr_header = get_csr_header(self.get_csr_regions(),
-                                    self.get_constants(),
+        csr_header = get_csr_header(self.csr_regions,
+                                    self.constants,
                                     with_access_functions=False)
         tools.write_to_file(filename, csr_header)
