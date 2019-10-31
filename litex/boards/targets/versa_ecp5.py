@@ -11,7 +11,7 @@ from migen.genlib.resetsync import AsyncResetSynchronizer
 
 from litex.boards.platforms import versa_ecp5
 
-from litex.build.lattice.trellis import yosys_args, yosys_argdict
+from litex.build.lattice.trellis import trellis_args, trellis_argdict
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_sdram import *
@@ -118,7 +118,7 @@ class EthernetSoC(BaseSoC):
         self.submodules.ethmac = LiteEthMAC(phy=self.ethphy, dw=32,
             interface="wishbone", endianness=self.cpu.endianness)
         self.add_wb_slave(self.mem_map["ethmac"], self.ethmac.bus, 0x2000)
-        self.add_memory_region("ethmac", self.mem_map["ethmac"], 0x2000, io_region=True)
+        self.add_memory_region("ethmac", self.mem_map["ethmac"], 0x2000, type="io")
         self.add_csr("ethmac")
         self.add_interrupt("ethmac")
 
@@ -135,7 +135,7 @@ def main():
         help='gateware toolchain to use, diamond (default) or  trellis')
     builder_args(parser)
     soc_sdram_args(parser)
-    yosys_args(parser)
+    trellis_args(parser)
     parser.add_argument("--sys-clk-freq", default=75e6,
                         help="system clock frequency (default=75MHz)")
     parser.add_argument("--with-ethernet", action="store_true",
@@ -145,7 +145,7 @@ def main():
     cls = EthernetSoC if args.with_ethernet else BaseSoC
     soc = cls(toolchain=args.toolchain, sys_clk_freq=int(float(args.sys_clk_freq)), **soc_sdram_argdict(args))
     builder = Builder(soc, **builder_argdict(args))
-    builder.build(**yosys_argdict(args))
+    builder.build(**trellis_argdict(args))
 
 if __name__ == "__main__":
     main()
