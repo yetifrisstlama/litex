@@ -149,7 +149,7 @@ class XilinxVivadoToolchain:
             tcl.append("set_msg_config -id {Vivado 12-5447} -new_severity {Info}")
             # The below line seems required but is also giving me:
             # CRITICAL WARNING: [Vivado 12-5447] synth_ip is not supported in project mode, please use non-project mode.
-            tcl.append("synth_ip [get_ips {}] -force".format(ip))
+            tcl.append("synth_ip [get_ips {}]".format(ip))
             tcl.append("get_files -all -of_objects [get_files {}]".format(filename_tcl))
 
         tcl.append("read_xdc {}.xdc".format(build_name))
