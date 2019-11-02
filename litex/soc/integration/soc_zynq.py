@@ -4,6 +4,7 @@
 import os
 
 from migen import *
+from migen.fhdl.specials import Tristate
 
 from litex.build.generic_platform import tools
 from litex.soc.integration.soc_core import *
@@ -243,13 +244,15 @@ class SoCZynq(SoCCore):
         Make sure to enable EMIO GPIOs in ip/gen_ip.tcl with:
         CONFIG.PCW_GPIO_EMIO_GPIO_ENABLE {1} CONFIG.PCW_GPIO_EMIO_GPIO_IO {32}
         '''
-        trp = TSTriple(N)
+        GPIO_O = Signal(N)
+        GPIO_T = Signal(N)
+        GPIO_I = Signal(N)
         self.ps7_params.update(
-            o_GPIO_O=trp.o,
-            o_GPIO_T=trp.oe,
-            i_GPIO_I=trp.i
+            o_GPIO_O=GPIO_O,
+            o_GPIO_T=GPIO_T,
+            i_GPIO_I=GPIO_I
         )
-        self.specials += trp.get_tristate(target_pads)
+        self.specials += Tristate(target_pads, GPIO_O, ~GPIO_T, GPIO_I)
 
     def do_finalize(self):
         SoCCore.do_finalize(self)
