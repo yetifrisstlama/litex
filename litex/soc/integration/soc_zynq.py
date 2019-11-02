@@ -218,7 +218,12 @@ class SoCZynq(SoCCore):
         p = spi_pads
         for s, v in zip(["SCLK", "MOSI", "SS"], [p.clk, p.mosi, p.cs_n]):
             self.ps7_params["o_SPI{}_{}_O".format(n, s)] = v
-        self.ps7_params["i_SPI{}_MISO_I".format(n)] = p.miso
+        try:
+            miso = p.miso
+        except AttributeError:
+            print("add_emio_spi(): MISO pin hard-wired to 0")
+            miso = 0
+        self.ps7_params["i_SPI{}_MISO_I".format(n)] = miso
 
         # ----------------
         #  unused PS pins
