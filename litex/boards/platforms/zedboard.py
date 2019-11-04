@@ -16,6 +16,18 @@ _io = [
     ("user_led", 6, Pins("U19"), IOStandard("LVCMOS33")),
     ("user_led", 7, Pins("U14"), IOStandard("LVCMOS33")),
 
+    # UG-2832HSWEG04 (ssd1306)
+    ("zed_oled", 0,
+        Subsignal("clk", Pins("AB12")),
+        Subsignal("mosi", Pins("AA12")),
+        # OLED does not have a MISO pin :(
+        Subsignal("reset_n", Pins("U9")),
+        Subsignal("dc", Pins("U10")),
+        Subsignal("vbat_n", Pins("U11")),
+        Subsignal("vdd_n", Pins("U12")),
+        IOStandard("LVCMOS33")
+    ),
+
     # 8 Switches (Bank 35)
     ("user_sw", 0, Pins("F22"), IOStandard("LVCMOS18")),
     ("user_sw", 1, Pins("G22"), IOStandard("LVCMOS18")),
