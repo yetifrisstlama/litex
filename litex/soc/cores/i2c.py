@@ -3,6 +3,8 @@
 
 import math
 from sys import argv
+from migen.fhdl.specials import Tristate
+from migen.build.xilinx.common import xilinx_special_overrides
 from migen import *
 from litex.soc.interconnect.csr import *
 
@@ -13,22 +15,23 @@ class I2CMaster(Module, AutoCSR):
 
     Provides a simple and minimal hardware I2C Master
     """
-    pads_layout = [("scl", 1), ("sda", 1), ("sda_i", 1)]
+    pads_layout = [("scl", 1), ("sda", 1)]
 
-    def __init__(self, pads, sys_clk_freq, i2c_clk_freq=400e3):
-        if pads is None:
-            pads = Record(self.pads_layout, reset=1)
-        self.pads = pads
+    def __init__(self, sys_clk_freq, i2c_clk_freq=400e3):
+        self.tx_word = Signal(9)  # LSB = ACK
+        self.rx_word = Signal(9)  # LSB = ACK
 
         self.start = Signal()
         self.done = Signal()
-        self.mode = Signal(2)  # 0 = send byte, 1 = send start, 2 = send stop
+
+        # 0 = IDLE, 1 = send byte, 2 = send start, 3 = send stop
+        self.mode = Signal(2)
+
+        self.scl = Signal()
+        self.sda = Signal()
+        self.sda_i = Signal()
 
         # # #
-
-        bits = Signal(4)
-        tx_word = Signal(9, reset=(0x83 << 1) | 1)
-        rx_word = Signal(9)
 
         # Clock generation ----------------------------------------------------
         clk_divide = math.ceil(sys_clk_freq / i2c_clk_freq)
@@ -48,107 +51,137 @@ class I2CMaster(Module, AutoCSR):
         ]
 
         # Control FSM ---------------------------------------------------------
+        bits = Signal(4)
         self.submodules.fsm = fsm = FSM(reset_state="IDLE")
         fsm.act("IDLE",
+            If(self.start & (self.mode != 0),
+                NextState("SYNC")
+            ),
             self.done.eq(1),
-            If(self.start & (self.mode == 2),
-                NextValue(self.pads.sda, 0),
-                NextState("XFER_STOP")
-            ),
-            If(self.start & (self.mode == 1),
-                NextValue(self.pads.sda, 0),
-                NextState("XFER_START")
-            ),
-            If(self.start & (self.mode == 0),
-                NextState("XFER")
+        )
+        fsm.act("SYNC",
+            If(clk_rise,
+                If(self.mode == 1,
+                    NextState("XFER")
+                ),
+                If(self.mode == 2,
+                    NextValue(self.sda, 1),
+                    NextValue(self.scl, 1),
+                    NextState("START")
+                ),
+                If(self.mode == 3,
+                    NextValue(self.sda, 0),
+                    NextValue(self.scl, 1),
+                    NextState("STOP")
+                ),
             )
         )
-        fsm.act("XFER_START",
+        fsm.act("START",
             If(clk_fall,
-                NextValue(self.pads.scl, 0),
-                NextValue(self.start, 0),
+                NextValue(self.sda, 0),
                 NextState("IDLE")
             )
         )
-        fsm.act("XFER_STOP",
-            If(clk_rise,
-                NextValue(self.pads.sda, 1),
-                NextValue(self.start, 0),
+        fsm.act("STOP",
+            If(clk_fall,
+                NextValue(self.sda, 1),
                 NextState("IDLE")
             )
         )
         fsm.act("XFER",
             If(clk_fall,
-                NextValue(tx_word, Cat(0, tx_word[:-1])),
-                NextValue(self.pads.sda, tx_word[-1]),
-                NextValue(self.pads.scl, 0),
+                NextValue(self.tx_word, Cat(0, self.tx_word[:-1])),
+                NextValue(self.sda, self.tx_word[-1]),
+                NextValue(self.scl, 0),
             ),
             If(clk_rise,
                 NextValue(bits, bits + 1),
-                NextValue(self.pads.scl, 1),
+                NextValue(self.scl, 1),
                 If(bits == 9,
                     NextState("IDLE"),
                     NextValue(bits, 0),
-                    NextValue(self.start, 0)
+                    NextValue(self.scl, 0),
+                    NextValue(self.sda, 1)
                 ).Else(
-                    NextValue(rx_word, Cat(self.pads.sda, rx_word[:-1]))
+                    NextValue(self.rx_word, Cat(
+                        self.sda_i,
+                        self.rx_word[:-1]
+                    ))
                 )
             )
         )
 
+    def add_pads(self, pads):
+        sda_oe = Signal()
+        self.comb += [
+            sda_oe.eq(~self.sda),
+            pads.scl.eq(self.scl)
+        ]
+        self.specials += Tristate(pads.sda, self.sda, sda_oe, self.sda_i)
 
-    # def add_csr(self):
-    #     self._control  = CSRStorage(fields=[
-    #         CSRField("start",  size=1, offset=0, pulse=True),
-    #         CSRField("length", size=8, offset=8)])
-    #     self._status   = CSRStatus(fields=[
-    #         CSRField("done", size=1, offset=0)])
-    #     self._mosi     = CSRStorage(self.data_width)
-    #     self._miso     = CSRStatus(self.data_width)
-    #     self._cs       = CSRStorage(len(self.cs), reset=1)
-    #     self._loopback = CSRStorage()
+    def add_csr(self):
+        self._control = CSRStorage(fields=[
+            CSRField("start", size=1, offset=0, pulse=True),
+            CSRField("mode", size=2, offset=4, values=[
+                (0, "Do nothing"),
+                (1, "RX_ / TX_WORD"),
+                (2, "Send START"),
+                (3, "Send STOP")
+            ]),
+            CSRField("tx_byte", size=8, offset=8),
+            CSRField("tx_ack", size=1, offset=16)
+        ])
 
-    #     self.comb += [
-    #         self.start.eq(self._control.fields.start),
-    #         self.length.eq(self._control.fields.length),
-    #         self.mosi.eq(self._mosi.storage),
-    #         self.cs.eq(self._cs.storage),
-    #         self.loopback.eq(self._loopback.storage),
+        self._status = CSRStatus(fields=[
+            CSRField("done", size=1, offset=0),
+            CSRField("rx_byte", size=8, offset=8),
+            CSRField("rx_ack", size=1, offset=16)
+        ])
 
-    #         self._status.fields.done.eq(self.done),
-    #         self._miso.status.eq(self.miso),
-    #     ]
+        self.sync += [
+            self.start.eq(self._control.fields.start),
+            self.mode.eq(self._control.fields.mode),
+            self.tx_word.eq(Cat(
+                self._control.fields.tx_ack,
+                self._control.fields.tx_byte
+            )),
+            self._status.fields.done.eq(self.done),
+            self._status.fields.rx_byte.eq(self.rx_word[1:]),
+            self._status.fields.rx_ack.eq(self.rx_word[0])
+        ]
+
+
+def tb_send(i):
+    yield dut.mode.eq(i)
+    yield dut.start.eq(1)
+    yield
+    yield dut.start.eq(0)
+    yield
+    while (yield dut.done) == 0:
+        yield
 
 
 def i2c_tb(dut):
     for i in range(10):
         yield
-    # Send START
-    yield dut.mode.eq(1)
-    yield dut.start.eq(1)
-    yield
-    yield
-    while (yield dut.done) == 0:
+    yield from tb_send(2)  # Send START
+    yield dut.tx_word.eq((0x83 << 1) | 0)
+    yield from tb_send(1)  # Send TX_WORD
+    yield from tb_send(2)  # Send REP_START
+    yield dut.tx_word.eq((0x83 << 1) | 1)
+    yield from tb_send(1)  # Send TX_WORD
+    yield from tb_send(1)  # Send TX_WORD
+    yield from tb_send(3)  # Send STOP
+    for i in range(10):
         yield
-    # Send TX_WORD
-    yield dut.mode.eq(0)
-    yield dut.start.eq(1)
-    yield
-    yield
-    while (yield dut.done) == 0:
-        yield
-    # Send STOP
-    yield dut.mode.eq(2)
-    yield dut.start.eq(1)
-    yield
-    yield
-    while (yield dut.done) == 0:
-        yield
-
-
 
 if __name__ == "__main__":
     tName = argv[0].replace('.py', '')
-    dut = I2CMaster(None, 1.6e6)
+    dut = I2CMaster(0.4e6 * 16)
     tb = i2c_tb(dut)
-    run_simulation(dut, tb, vcd_name=tName + '.vcd')
+    run_simulation(
+        dut,
+        tb,
+        special_overrides=xilinx_special_overrides,
+        vcd_name=tName + '.vcd'
+    )
