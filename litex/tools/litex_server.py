@@ -192,7 +192,7 @@ def main():
             vid = int(vid, base=0)
         comm = CommUSB(vid=vid, pid=pid, max_retries=args.usb_max_retries)
     elif args.devmem:
-        from comm_devmem import CommDevmem
+        from litex.tools.remote.comm_devmem import CommDevmem
         print(
             "[CommDevmem] /dev/mem @ {:x}/ ".format(args.devmem_offset),
             end="",
