@@ -142,8 +142,18 @@ def main():
                         help="Set USB product ID")
     parser.add_argument("--usb-max-retries", default=10,
                         help="Number of times to try reconnecting to USB")
-    args = parser.parse_args()
 
+    # Devmem arguments (for zynq)
+    parser.add_argument("--devmem", action="store_true",
+                        help="Select /dev/mem interface")
+    parser.add_argument(
+        "--devmem-offset",
+        default=0x40000000,
+        type=lambda x: int(x, 0),
+        help="/dev/mem address offset, gp0 is at 0x4000_0000"
+    )
+
+    args = parser.parse_args()
 
     if args.uart:
         from litex.tools.remote.comm_uart import CommUART
@@ -181,6 +191,14 @@ def main():
         if vid is not None:
             vid = int(vid, base=0)
         comm = CommUSB(vid=vid, pid=pid, max_retries=args.usb_max_retries)
+    elif args.devmem:
+        from comm_devmem import CommDevmem
+        print(
+            "[CommDevmem] /dev/mem @ {:x}/ ".format(args.devmem_offset),
+            end="",
+            flush=True
+        )
+        comm = CommDevmem(args.devmem_offset)
     else:
         parser.print_help()
         exit()
