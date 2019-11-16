@@ -4,6 +4,7 @@
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
 from litex.build.xilinx import XilinxPlatform, XC3SProg, VivadoProgrammer
 from litex.build.openocd import OpenOCD
+from migen import *
 
 _io = [
     # 8 LEDs above DIP switches (Bank 33)
@@ -204,6 +205,44 @@ class Platform(XilinxPlatform):
         #     # Generate .bit.bin file for loading with linux fpga_manager
         #     'exec bootgen -image {build_name}.bif -w -arch zynq -process_bitstream bin'
         # ]
+
+    def add_oled(self, soc, SPI_N=0, SS_N=1, DC_GPIO=8, RST_GPIO=9):
+        '''
+        Wire-up the on-board OLED display to the Zynq PS
+
+        soc: a SocZynq object
+        SPI_N: which SPI peripheral (0 or 1)
+        SS_N: which slave select pin (0, 1, 2)
+        DC_GPIO: PS GPIO pin to connect to  Data / Command input of display
+        RST_GPIO: PS GPIO pin to connect to  Reset input of display
+
+        The configuration in ./ip/gen_ip.tcl must match these parameters!
+        '''
+        oled = self.request("zed_oled")
+        oled_cs = Signal()
+        soc.ps7_params["o_SPI{}_SS{}_O".format(SPI_N, SS_N)] = oled_cs
+        oled_clk = Signal()
+        oled_mosi = Signal()
+        soc.comb += [
+            # OLED power always on
+            oled.vbat_n.eq(0),
+            oled.vdd_n.eq(0),
+            # Fake the missing OLED chip select by gating MOSI and SCLK
+            If(oled_cs,
+                oled_clk.eq(0),
+                oled_mosi.eq(0)
+            ).Else(
+                oled_clk.eq(soc.ps7_params["o_SPI{}_SCLK_O".format(SPI_N)]),
+                oled_mosi.eq(soc.ps7_params["o_SPI{}_MOSI_O".format(SPI_N)]),
+            ),
+            # Share SPI0 SCLK and MOSI
+            oled.clk.eq(oled_clk),
+            oled.mosi.eq(oled_mosi),
+            # D/C = EMIO62
+            oled.dc.eq(soc.ps7_params["o_GPIO_O"][DC_GPIO]),
+            # RESET_N = EMIO63
+            oled.reset_n.eq(soc.ps7_params["o_GPIO_O"][RST_GPIO])
+        ]
 
     def create_programmer(self, programmer="xc3sprog"):
         if programmer == "xc3sprog":

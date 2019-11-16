@@ -211,10 +211,10 @@ class SoCZynq(SoCCore):
 
     def add_emio_spi(self, spi_pads, n=0):
         '''
-        Connect a PS SPI interfaces to fabric.
+        Connect a PS SPI interfaces to some IO pads.
         n selects which one (0 or 1).
-        Make sure to enable the interface in ip/gen_ip.tcl and
-        configure its pins for EMIO.
+        Make sure to enable the interface in ip/gen_ip.tcl with:
+        CONFIG.PCW_SPI0_PERIPHERAL_ENABLE {1}
         '''
         p = spi_pads
         for s, v in zip(["SCLK", "MOSI", "SS"], [p.clk, p.mosi, p.cs_n]):
@@ -239,7 +239,7 @@ class SoCZynq(SoCCore):
 
     def add_emio_gpio(self, target_pads, N=32):
         '''
-        Connect a PS GPIO interfaces to fabric.
+        Connect a PS GPIO interfaces to some IO pads.
         N selects width of GPIO port.
         Make sure to enable EMIO GPIOs in ip/gen_ip.tcl with:
         CONFIG.PCW_GPIO_EMIO_GPIO_ENABLE {1} CONFIG.PCW_GPIO_EMIO_GPIO_IO {32}
@@ -253,6 +253,23 @@ class SoCZynq(SoCCore):
             i_GPIO_I=GPIO_I
         )
         self.specials += Tristate(target_pads, GPIO_O, ~GPIO_T, GPIO_I)
+
+    def add_emio_i2c(self, target_pads, n=0):
+        '''
+        Connect a PS I2C interfaces to some IO pads.
+        n selects which one (0 or 1).
+        Make sure to enable EMIO I2C in ip/gen_ip.tcl with:
+        CONFIG.PCW_I2C0_PERIPHERAL_ENABLE {1}
+        '''
+        for l in ('SDA', 'SCL'):
+            _I = Signal()
+            _O = Signal()
+            _T = Signal()
+            self.ps7_params["i_I2C{}_{}_I".format(n, l)] = _I
+            self.ps7_params["o_I2C{}_{}_O".format(n, l)] = _O
+            self.ps7_params["o_I2C{}_{}_T".format(n, l)] = _T
+            p = getattr(target_pads, l.lower())
+            self.specials += Tristate(p, _O, ~_T, _I)
 
     def do_finalize(self):
         SoCCore.do_finalize(self)
