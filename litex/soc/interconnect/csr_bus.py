@@ -84,6 +84,9 @@ class SRAM(Module):
             mem = mem_or_size
         else:
             mem = Memory(data_width, mem_or_size//(data_width//8), init=init)
+        mem_size = int(mem.width*mem.depth/8)
+        if mem_size > 512:
+            print("WARNING: memory > 512 bytes in CSR region requires paged access".format(mem_size))
         csrw_per_memw = (mem.width + data_width - 1)//data_width
         word_bits = log2_int(csrw_per_memw)
         page_bits = log2_int((mem.depth*csrw_per_memw + 511)//512, False)
