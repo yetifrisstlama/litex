@@ -1,4 +1,5 @@
 # This file is Copyright (c) 2015-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2019 Vamsi K Vytla <vkvytla@lbl.gov>
 # License: BSD
 
 from migen import *
@@ -155,175 +156,222 @@ class Header:
 
 class Packetizer(Module):
     def __init__(self, sink_description, source_description, header):
-        self.sink   =   sink = stream.Endpoint(sink_description)
+        self.sink   = sink   = stream.Endpoint(sink_description)
         self.source = source = stream.Endpoint(source_description)
         self.header = Signal(header.length*8)
 
         # # #
 
-        dw = len(self.sink.data)
+        # Parameters -------------------------------------------------------------------------------
+        data_width      = len(self.sink.data)
+        bytes_per_clk   = data_width//8
+        header_words    = (header.length*8)//data_width
+        header_leftover = header.length%bytes_per_clk
 
-        header_reg    = Signal(header.length*8, reset_less=True)
-        header_words  = (header.length*8)//dw
-        load          = Signal()
-        shift         = Signal()
-        counter       = Signal(max=max(header_words, 2))
-        counter_reset = Signal()
-        counter_ce    = Signal()
-        self.sync += \
-            If(counter_reset,
-                counter.eq(0)
-            ).Elif(counter_ce,
-                counter.eq(counter + 1)
-            )
+        # Signals ----------------------------------------------------------------------------------
+        sr       = Signal(header.length*8, reset_less=True)
+        sr_load  = Signal()
+        sr_shift = Signal()
+        count    = Signal(max=max(header_words, 2))
+        sink_d   = stream.Endpoint(sink_description)
 
+        # Header Encode/Load/Shift -----------------------------------------------------------------
         self.comb += header.encode(sink, self.header)
-        if header_words == 1:
-            self.sync += [
-                If(load,
-                    header_reg.eq(self.header)
-                )
-            ]
-        else:
-            self.sync += [
-                If(load,
-                    header_reg.eq(self.header)
-                ).Elif(shift,
-                    header_reg.eq(Cat(header_reg[dw:], Signal(dw)))
-                )
-            ]
+        self.sync += If(sr_load, sr.eq(self.header))
+        if header_words != 1:
+            self.sync += If(sr_shift, sr.eq(sr[data_width:]))
 
-        fsm = FSM(reset_state="IDLE")
-        self.submodules += fsm
-
-        if header_words == 1:
-            idle_next_state = "COPY"
-        else:
-            idle_next_state = "SEND-HEADER"
-
+        # FSM --------------------------------------------------------------------------------------
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm_from_idle = Signal()
         fsm.act("IDLE",
             sink.ready.eq(1),
-            counter_reset.eq(1),
+            NextValue(count, 1),
             If(sink.valid,
                 sink.ready.eq(0),
                 source.valid.eq(1),
                 source.last.eq(0),
-                source.data.eq(self.header[:dw]),
+                source.data.eq(self.header[:data_width]),
                 If(source.valid & source.ready,
-                    load.eq(1),
-                    NextState(idle_next_state)
-                )
+                    sr_load.eq(1),
+                    NextValue(fsm_from_idle, 1),
+                    If(header_words == 1,
+                        If(header_leftover != 0,
+                            NextState("UNALIGNED-DATA-COPY")
+                        ).Else(
+                            NextState("ALIGNED-DATA-COPY")
+                        )
+                    ).Else(
+                        NextState("HEADER-SEND")
+                    )
+               )
             )
         )
-        if header_words != 1:
-            fsm.act("SEND-HEADER",
-                source.valid.eq(1),
-                source.last.eq(0),
-                source.data.eq(header_reg[dw:2*dw]),
-                If(source.valid & source.ready,
-                    shift.eq(1),
-                    counter_ce.eq(1),
-                    If(counter == header_words-2,
-                        NextState("COPY")
+        fsm.act("HEADER-SEND",
+            source.valid.eq(1),
+            source.last.eq(0),
+            source.data.eq(sr[min(data_width, len(sr)-1):]),
+            If(source.valid & source.ready,
+                sr_shift.eq(1),
+                If(count == (header_words - 1),
+                    sr_shift.eq(0),
+                    If(header_leftover,
+                        NextState("UNALIGNED-DATA-COPY"),
+                        NextValue(count, count + 1)
+                    ).Else(
+                        NextState("ALIGNED-DATA-COPY")
                     )
-                )
+               ).Else(
+                    NextValue(count, count + 1),
+               )
             )
-        if hasattr(sink, "error"):
-            self.comb += source.error.eq(sink.error)
-        fsm.act("COPY",
+        )
+        fsm.act("ALIGNED-DATA-COPY",
             source.valid.eq(sink.valid),
             source.last.eq(sink.last),
             source.data.eq(sink.data),
             If(source.valid & source.ready,
-                sink.ready.eq(1),
+               sink.ready.eq(1),
+               If(source.last,
+                  NextState("IDLE")
+               )
+            )
+        )
+        header_offset_multiplier = 1 if header_words == 1 else 2
+        self.sync += If(source.ready, sink_d.eq(sink))
+        fsm.act("UNALIGNED-DATA-COPY",
+            source.valid.eq(sink.valid | sink_d.last),
+            source.last.eq(sink_d.last),
+            If(fsm_from_idle,
+                source.data[:max(header_leftover*8, 1)].eq(sr[min(header_offset_multiplier*data_width, len(sr)-1):])
+            ).Else(
+                source.data[:max(header_leftover*8, 1)].eq(sink_d.data[min((bytes_per_clk-header_leftover)*8, data_width-1):])
+            ),
+            source.data[header_leftover*8:].eq(sink.data),
+            If(source.valid & source.ready,
+                sink.ready.eq(~source.last),
+                NextValue(fsm_from_idle, 0),
                 If(source.last,
                     NextState("IDLE")
                 )
             )
         )
 
+        # Error ------------------------------------------------------------------------------------
+        if hasattr(sink, "error") and hasattr(source, "error"):
+            self.comb += source.error.eq(sink.error)
+
+        # Last BE ----------------------------------------------------------------------------------
+        if hasattr(sink, "last_be") and hasattr(source, "last_be"):
+            rotate_by = header.length%bytes_per_clk
+            x = [sink.last_be[(i + rotate_by)%bytes_per_clk] for i in range(bytes_per_clk)]
+            self.comb += source.last_be.eq(Cat(*x))
+
 # Depacketizer -------------------------------------------------------------------------------------
 
 class Depacketizer(Module):
     def __init__(self, sink_description, source_description, header):
-        self.sink = sink = stream.Endpoint(sink_description)
+        self.sink   = sink   = stream.Endpoint(sink_description)
         self.source = source = stream.Endpoint(source_description)
         self.header = Signal(header.length*8)
 
         # # #
 
-        dw = len(sink.data)
+        # Parameters -------------------------------------------------------------------------------
+        data_width      = len(sink.data)
+        bytes_per_clk   = data_width//8
+        header_words    = (header.length*8)//data_width
+        header_leftover = header.length%bytes_per_clk
 
-        header_reg = Signal(header.length*8, reset_less=True)
-        header_words = (header.length*8)//dw
+        # Signals ----------------------------------------------------------------------------------
+        sr                = Signal(header.length*8, reset_less=True)
+        sr_shift          = Signal()
+        sr_shift_leftover = Signal()
+        count             = Signal(max=max(header_words, 2))
+        sink_d            = stream.Endpoint(sink_description)
 
-        shift         = Signal()
-        counter       = Signal(max=max(header_words, 2))
-        counter_reset = Signal()
-        counter_ce    = Signal()
-        self.sync += \
-            If(counter_reset,
-                counter.eq(0)
-            ).Elif(counter_ce,
-                counter.eq(counter + 1)
-            )
-
-        if header_words == 1:
-            self.sync += \
-                If(shift,
-                    header_reg.eq(sink.data)
-                )
+        # Header Shift/Decode ----------------------------------------------------------------------
+        if (header_words) == 1 and (header_leftover == 0):
+            self.sync += If(sr_shift, sr.eq(sink.data))
         else:
-            self.sync += \
-                If(shift,
-                    header_reg.eq(Cat(header_reg[dw:], sink.data))
-                )
-        self.comb += self.header.eq(header_reg)
+            self.sync += [
+                If(sr_shift,          sr.eq(Cat(sr[bytes_per_clk*8:],   sink.data))),
+                If(sr_shift_leftover, sr.eq(Cat(sr[header_leftover*8:], sink.data)))
+            ]
+        self.comb += self.header.eq(sr)
+        self.comb += header.decode(self.header, source)
 
-        fsm = FSM(reset_state="IDLE")
-        self.submodules += fsm
-
-        if header_words == 1:
-            idle_next_state = "COPY"
-        else:
-            idle_next_state = "RECEIVE_HEADER"
-
+        # FSM --------------------------------------------------------------------------------------
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm_from_idle = Signal()
         fsm.act("IDLE",
             sink.ready.eq(1),
-            counter_reset.eq(1),
+            NextValue(count, 1),
             If(sink.valid,
-                shift.eq(1),
-                NextState(idle_next_state)
+                sr_shift.eq(1),
+                NextValue(fsm_from_idle, 1),
+                If(header_words == 1,
+                    If(header_leftover,
+                        NextState("UNALIGNED-DATA-COPY")
+                    ).Else(
+                        NextState("ALIGNED-DATA-COPY")
+                    ),
+                ).Else(
+                    NextState("HEADER-RECEIVE")
+                )
             )
         )
-        if header_words != 1:
-            fsm.act("RECEIVE_HEADER",
-                sink.ready.eq(1),
-                If(sink.valid,
-                    counter_ce.eq(1),
-                    shift.eq(1),
-                    If(counter == header_words-2,
-                        NextState("COPY")
+        fsm.act("HEADER-RECEIVE",
+            sink.ready.eq(1),
+            If(sink.valid,
+                NextValue(count, count + 1),
+                sr_shift.eq(1),
+                If(count == (header_words - 1),
+                    If(header_leftover,
+                        NextValue(count, count + 1),
+                        NextState("UNALIGNED-DATA-COPY")
+                    ).Else(
+                        NextState("ALIGNED-DATA-COPY")
                     )
                 )
             )
-        no_payload = Signal()
-        self.sync += \
-            If(fsm.before_entering("COPY"),
-                no_payload.eq(sink.last)
-            )
-
-        if hasattr(sink, "error"):
-            self.comb += source.error.eq(sink.error)
-        self.comb += [
-            source.last.eq(sink.last | no_payload),
-            source.data.eq(sink.data),
-            header.decode(self.header, source)
-        ]
-        fsm.act("COPY",
-            sink.ready.eq(source.ready),
-            source.valid.eq(sink.valid | no_payload),
-            If(source.valid & source.ready & source.last,
-                NextState("IDLE")
+        )
+        self.sync += If(sink.ready, sink_d.eq(sink))
+        fsm.act("UNALIGNED-DATA-COPY",
+            source.valid.eq((sink.valid & ~fsm_from_idle) | sink_d.last),
+            source.last.eq(sink.last | sink_d.last),
+            sink.ready.eq(source.ready | fsm_from_idle),
+            If(sink.valid & sink.ready,
+                NextValue(fsm_from_idle, 0),
+                If(fsm_from_idle,
+                    sr_shift_leftover.eq(1),
+                ).Else(
+                    source.data.eq(sink_d.data[header_leftover*8:]),
+                    source.data[min((bytes_per_clk-header_leftover)*8, data_width-1):].eq(sink.data)
+                ),
+                If(source.last,
+                    NextState("IDLE")
+                )
             )
         )
+        fsm.act("ALIGNED-DATA-COPY",
+            source.valid.eq(sink.valid | sink_d.last),
+            source.last.eq(sink.last | sink_d.last),
+            sink.ready.eq(source.ready),
+            source.data.eq(sink.data),
+            If(source.valid & source.ready,
+               If(source.last,
+                  NextState("IDLE")
+               )
+            )
+        )
+
+        # Error ------------------------------------------------------------------------------------
+        if hasattr(sink, "error") and hasattr(source, "error"):
+            self.comb += source.error.eq(sink.error)
+
+        # Last BE ----------------------------------------------------------------------------------
+        if hasattr(sink, "last_be") and hasattr(source, "last_be"):
+            x = [sink.last_be[(i - (bytes_per_clk - header_leftover))%bytes_per_clk]
+                for i in range(bytes_per_clk)]
+            self.comb += source.last_be.eq(Cat(*x))
