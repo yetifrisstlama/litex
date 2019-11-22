@@ -247,7 +247,7 @@ def get_csr_json(csr_regions={}, constants={}, mem_regions={}):
             "type": region.type,
         }
 
-    return json.dumps(d, indent=4)
+    return json.dumps(d, indent=4, sort_keys=True)
 
 
 # CSV Export --------------------------------------------------------------------------------------
