@@ -12,21 +12,9 @@ from migen import *
 
 # Helpers ----------------------------------------------------------------------------------------
 
-def mem_decoder(address, size=0x10000000):
-    address &= ~0x80000000
-    size = 2**log2_int(size, False)
-    assert (address & (size - 1)) == 0
-    address >>= 2 # bytes to words aligned
-    size    >>= 2 # bytes to words aligned
-    return lambda a: (a[log2_int(size):-1] == (address >> log2_int(size)))
-
 def get_version(with_time=True):
-    if with_time:
-        return datetime.datetime.fromtimestamp(
-                time.time()).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        return datetime.datetime.fromtimestamp(
-                time.time()).strftime("%Y-%m-%d")
+    fmt = "%Y-%m-%d %H:%M:%S" if with_time else "%Y-%m-%d"
+    return datetime.datetime.fromtimestamp(time.time()).strftime(fmt)
 
 def get_mem_data(filename_or_regions, endianness="big", mem_size=None):
     # create memory regions
@@ -70,26 +58,3 @@ def get_mem_data(filename_or_regions, endianness="big", mem_size=None):
                     data[int(base, 16)//4 + i] = struct.unpack(">I", w)[0]
                 i += 1
     return data
-
-# SoC primitives -----------------------------------------------------------------------------------
-
-def SoCConstant(value):
-    return value
-
-class SoCMemRegion:
-    def __init__(self, origin, length, type):
-        assert type in ["cached", "io", "cached+linker", "io+linker"]
-        self.origin = origin
-        self.length = length
-        self.type   = type
-
-    def __str__(self):
-        return "<SoCMemRegion 0x{:x} 0x{:x} {}>".format(
-            self.origin, self.length, self.type)
-
-
-class SoCCSRRegion:
-    def __init__(self, origin, busword, obj):
-        self.origin  = origin
-        self.busword = busword
-        self.obj     = obj

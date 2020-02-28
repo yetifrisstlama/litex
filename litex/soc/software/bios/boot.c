@@ -232,6 +232,19 @@ int serialboot(void)
 	return 1;
 }
 
+#if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
+
+#define KERNEL_IMAGE_RAM_OFFSET      0x00000000
+#define ROOTFS_IMAGE_RAM_OFFSET      0x00800000
+#define DEVICE_TREE_IMAGE_RAM_OFFSET 0x01000000
+
+#ifndef EMULATOR_RAM_BASE
+#define EMULATOR_RAM_BASE 0x20000000
+#endif
+#define EMULATOR_IMAGE_RAM_OFFSET    0x00000000
+
+#endif
+
 #ifdef CSR_ETHMAC_BASE
 
 #ifndef LOCALIP1
@@ -268,14 +281,6 @@ const char *filename, char *buffer)
 
 static const unsigned char macadr[6] = {0x10, 0xe2, 0xd5, 0x00, 0x00, 0x00};
 
-#define KERNEL_IMAGE_RAM_OFFSET      0x00000000
-#define ROOTFS_IMAGE_RAM_OFFSET      0x00800000
-#define DEVICE_TREE_IMAGE_RAM_OFFSET 0x01000000
-
-#ifndef EMULATOR_RAM_BASE
-#define EMULATOR_RAM_BASE 0x20000000
-#endif
-#define EMULATOR_IMAGE_RAM_OFFSET    0x00000000
 
 #if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
 static int try_get_kernel_rootfs_dtb_emulator(unsigned int ip, unsigned short tftp_port)
@@ -365,20 +370,20 @@ void netboot(void)
 #define FIRMWARE_BASE_ADDRESS (FLASH_BOOT_ADDRESS + 2 * sizeof(unsigned int))
 #endif
 
-static unsigned int check_image_in_flash(unsigned int *base_address)
+static unsigned int check_image_in_flash(unsigned int base_address)
 {
 	unsigned int length;
 	unsigned int crc;
 	unsigned int got_crc;
 
-	length = *base_address++;
-	if((length < 32) || (length > 4*1024*1024)) {
+	length = MMPTR(base_address);
+	if((length < 32) || (length > 16*1024*1024)) {
 		printf("Error: Invalid image length 0x%08x\n", length);
 		return 0;
 	}
 
-	crc = *base_address++;
-	got_crc = crc32((unsigned char *)base_address, length);
+	crc = MMPTR(base_address + 4);
+	got_crc = crc32((unsigned char *)(base_address + 8), length);
 	if(crc != got_crc) {
 		printf("CRC failed (expected %08x, got %08x)\n", crc, got_crc);
 		return 0;
@@ -388,14 +393,15 @@ static unsigned int check_image_in_flash(unsigned int *base_address)
 }
 
 #if defined(MAIN_RAM_BASE) && defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
-static int copy_image_from_flash_to_ram(unsigned int *flash_address, unsigned int *ram_address)
+static int copy_image_from_flash_to_ram(unsigned int flash_address, unsigned int ram_address)
 {
 	unsigned int length;
 
 	length = check_image_in_flash(flash_address);
 	if(length > 0) {
+		printf("Copying %d bytes from 0x%08x to 0x%08x...\n", length, flash_address, ram_address);
 		// skip length and crc
-		memcpy((void *)ram_address, (void *)(flash_address + 2), length);
+		memcpy((void *)ram_address, (void *)flash_address + 8, length);
 		return 1;
 	}
 
@@ -403,10 +409,18 @@ static int copy_image_from_flash_to_ram(unsigned int *flash_address, unsigned in
 }
 #endif
 
-#define KERNEL_IMAGE_FLASH_OFFSET      0x00000000 //  0MB
-#define ROOTFS_IMAGE_FLASH_OFFSET      0x00400000 //  4MB
-#define DEVICE_TREE_IMAGE_FLASH_OFFSET 0x00B00000 // 11MB
-#define EMULATOR_IMAGE_FLASH_OFFSET    0x00B01000 // 11MB + 4KB
+#ifndef KERNEL_IMAGE_FLASH_OFFSET
+	#define KERNEL_IMAGE_FLASH_OFFSET      0x00000000 //  0MB
+#endif
+#ifndef ROOTFS_IMAGE_FLASH_OFFSET
+	#define ROOTFS_IMAGE_FLASH_OFFSET      0x00500000 //  5MB
+#endif
+#ifndef DEVICE_TREE_IMAGE_FLASH_OFFSET
+	#define DEVICE_TREE_IMAGE_FLASH_OFFSET 0x00D00000 // 13MB
+#endif
+#ifndef EMULATOR_IMAGE_FLASH_OFFSET
+	#define EMULATOR_IMAGE_FLASH_OFFSET    0x00E00000 // 14MB
+#endif
 
 void flashboot(void)
 {
@@ -415,30 +429,31 @@ void flashboot(void)
 #if defined(MAIN_RAM_BASE) && defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
 	unsigned int result;
 
-	printf("Loading emulator.bin from flash...\n");
+	printf("Loading Image from flash...\n");
 	result = copy_image_from_flash_to_ram(
-		(unsigned int *)(FLASH_BOOT_ADDRESS + EMULATOR_IMAGE_FLASH_OFFSET),
-		(unsigned int *)(EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET));
+		(FLASH_BOOT_ADDRESS + KERNEL_IMAGE_FLASH_OFFSET),
+		(MAIN_RAM_BASE + KERNEL_IMAGE_RAM_OFFSET));
 
-	if(result) {
-		printf("Loading Image from flash...\n");
-		result &= copy_image_from_flash_to_ram(
-			(unsigned int *)(FLASH_BOOT_ADDRESS + KERNEL_IMAGE_FLASH_OFFSET),
-			(unsigned int *)(MAIN_RAM_BASE + KERNEL_IMAGE_RAM_OFFSET));
-	}
 
 	if(result) {
 		printf("Loading rootfs.cpio from flash...\n");
 		result &= copy_image_from_flash_to_ram(
-			(unsigned int *)(FLASH_BOOT_ADDRESS + ROOTFS_IMAGE_FLASH_OFFSET),
-			(unsigned int *)(MAIN_RAM_BASE + ROOTFS_IMAGE_RAM_OFFSET));
+			(FLASH_BOOT_ADDRESS + ROOTFS_IMAGE_FLASH_OFFSET),
+			(MAIN_RAM_BASE + ROOTFS_IMAGE_RAM_OFFSET));
 	}
 
 	if(result) {
 		printf("Loading rv32.dtb from flash...\n");
 		result &= copy_image_from_flash_to_ram(
-			(unsigned int *)(FLASH_BOOT_ADDRESS + DEVICE_TREE_IMAGE_FLASH_OFFSET),
-			(unsigned int *)(MAIN_RAM_BASE + DEVICE_TREE_IMAGE_RAM_OFFSET));
+			(FLASH_BOOT_ADDRESS + DEVICE_TREE_IMAGE_FLASH_OFFSET),
+			(MAIN_RAM_BASE + DEVICE_TREE_IMAGE_RAM_OFFSET));
+	}
+
+	if(result) {
+		printf("Loading emulator.bin from flash...\n");
+		result &= copy_image_from_flash_to_ram(
+			(FLASH_BOOT_ADDRESS + EMULATOR_IMAGE_FLASH_OFFSET),
+			(EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET));
 	}
 
 	if(result) {
@@ -448,7 +463,7 @@ void flashboot(void)
 #endif
 
 	printf("Booting from flash...\n");
-	length = check_image_in_flash((unsigned int *) FLASH_BOOT_ADDRESS);
+	length = check_image_in_flash(FLASH_BOOT_ADDRESS);
 	if(!length)
 		return;
 

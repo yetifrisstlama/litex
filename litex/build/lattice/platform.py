@@ -1,10 +1,11 @@
-# This file is Copyright (c) 2015-2018 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2015-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # This file is Copyright (c) 2017 William D. Jones <thor0505@comcast.net>
 # License: BSD
 
 from litex.build.generic_platform import GenericPlatform
 from litex.build.lattice import common, diamond, icestorm, trellis
 
+# LatticePlatform ----------------------------------------------------------------------------------
 
 class LatticePlatform(GenericPlatform):
     bitstream_ext = ".bit"
@@ -22,7 +23,7 @@ class LatticePlatform(GenericPlatform):
             raise ValueError("Unknown toolchain")
 
     def get_verilog(self, *args, special_overrides=dict(), **kwargs):
-        so = dict()  # No common overrides between ECP and ice40.
+        so = dict()  # No common overrides between ECPX and iCE40.
         so.update(self.toolchain.special_overrides)
         so.update(special_overrides)
         return GenericPlatform.get_verilog(self, *args, special_overrides=so,
@@ -36,3 +37,10 @@ class LatticePlatform(GenericPlatform):
         if hasattr(clk, "p"):
             clk = clk.p
         self.toolchain.add_period_constraint(self, clk, period)
+
+    def add_false_path_constraint(self, from_, to):
+        if hasattr(from_, "p"):
+            from_ = from_.p
+        if hasattr(to, "p"):
+            to = to.p
+        self.toolchain.add_false_path_constraint(self, from_, to)

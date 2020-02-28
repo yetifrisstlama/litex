@@ -40,6 +40,21 @@ extern void _irq_setmask(unsigned int);
 #define PLIC_CLAIM   0x0c200004L // Claim & completion register address
 #endif /* __rocket__ */
 
+
+#ifdef __blackparrot__
+// The RocketChip uses a Platform-Level Interrupt Controller (PLIC) which
+// is programmed and queried via a set of MMIO registers.
+// TODO: How about Blackparrot? Should be probably included in linux version
+
+#define PLIC_BASE    0x0c000000L // Base address and per-pin priority array
+#define PLIC_PENDING 0x0c001000L // Bit field matching currently pending pins
+#define PLIC_ENABLED 0x0c002000L // Bit field corresponding to the current mask
+#define PLIC_THRSHLD 0x0c200000L // Per-pin priority must be >= this to trigger
+#define PLIC_CLAIM   0x0c200004L // Claim & completion register address
+#endif /* __blackparrot__ */
+
+
+
 static inline unsigned int irq_getie(void)
 {
 #if defined (__lm32__)
@@ -56,6 +71,10 @@ static inline unsigned int irq_getie(void)
 	return (csrr(mstatus) & CSR_MSTATUS_MIE) != 0;
 #elif defined (__rocket__)
 	return (csrr(mstatus) & CSR_MSTATUS_MIE) != 0;
+#elif defined (__microwatt__)
+	return 0; // FIXME
+#elif defined (__blackparrot__) 
+	return (csrr(mstatus) & CSR_MSTATUS_MIE) != 0;//TODO
 #else
 #error Unsupported architecture
 #endif
@@ -81,6 +100,10 @@ static inline void irq_setie(unsigned int ie)
 	if(ie) csrs(mstatus,CSR_MSTATUS_MIE); else csrc(mstatus,CSR_MSTATUS_MIE);
 #elif defined (__rocket__)
 	if(ie) csrs(mstatus,CSR_MSTATUS_MIE); else csrc(mstatus,CSR_MSTATUS_MIE);
+#elif defined (__microwatt__)
+	// FIXME
+#elif defined (__blackparrot__)
+	if(ie) csrs(mstatus,CSR_MSTATUS_MIE); else csrc(mstatus,CSR_MSTATUS_MIE);//TODO:BP
 #else
 #error Unsupported architecture
 #endif
@@ -107,7 +130,11 @@ static inline unsigned int irq_getmask(void)
 	asm volatile ("csrr %0, %1" : "=r"(mask) : "i"(CSR_IRQ_MASK));
 	return mask;
 #elif defined (__rocket__)
-	return csr_readl(PLIC_ENABLED) >> 1;
+	return *((unsigned int *)PLIC_ENABLED) >> 1;
+#elif defined (__microwatt__)
+	return 0; // FIXME
+#elif defined (__blackparrot__)
+	//TODO:BP
 #else
 #error Unsupported architecture
 #endif
@@ -128,7 +155,11 @@ static inline void irq_setmask(unsigned int mask)
 #elif defined (__minerva__)
 	asm volatile ("csrw %0, %1" :: "i"(CSR_IRQ_MASK), "r"(mask));
 #elif defined (__rocket__)
-	csr_writel(mask << 1, PLIC_ENABLED);
+	*((unsigned int *)PLIC_ENABLED) = mask << 1;
+#elif defined (__microwatt__)
+	// FIXME
+#elif defined (__blackparrot__)
+	//TODO:BP
 #else
 #error Unsupported architecture
 #endif
@@ -153,7 +184,11 @@ static inline unsigned int irq_pending(void)
 	asm volatile ("csrr %0, %1" : "=r"(pending) : "i"(CSR_IRQ_PENDING));
 	return pending;
 #elif defined (__rocket__)
-	return csr_readl(PLIC_PENDING) >> 1;
+	return *((unsigned int *)PLIC_PENDING) >> 1;
+#elif defined (__microwatt__)
+	return 0; // FIXME
+#elif defined (__blackparrot__)
+	return csr_readl(PLIC_PENDING) >> 1;//TODO:BP
 #else
 #error Unsupported architecture
 #endif

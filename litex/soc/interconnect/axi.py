@@ -1,4 +1,5 @@
 # This file is Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2020 Karol Gugala <kgugala@antmicro.com>
 # License: BSD
 
 """AXI4 Full/Lite support for LiteX"""
@@ -6,6 +7,7 @@
 from migen import *
 
 from litex.soc.interconnect import stream
+from litex.build.generic_platform import *
 
 # AXI Definition -----------------------------------------------------------------------------------
 
@@ -66,7 +68,7 @@ class AXIInterface(Record):
         self.ar = stream.Endpoint(ax_description(address_width, id_width))
         self.r  = stream.Endpoint(r_description(data_width, id_width))
 
-# AXI Lite Definition -----------------------------------------------------------------------------------
+# AXI Lite Definition ------------------------------------------------------------------------------
 
 def ax_lite_description(address_width):
     return [("addr",  address_width)]
@@ -97,6 +99,44 @@ class AXILiteInterface(Record):
         self.b  = stream.Endpoint(b_lite_description())
         self.ar = stream.Endpoint(ax_lite_description(address_width))
         self.r  = stream.Endpoint(r_lite_description(data_width))
+
+    def get_ios(self, bus_name="wb"):
+        subsignals = []
+        for channel in ["aw", "w", "b", "ar", "r"]:
+            for name in ["valid", "ready"]:
+                subsignals.append(Subsignal(channel + name, Pins(1)))
+            for name, width in getattr(self, channel).description.payload_layout:
+                subsignals.append(Subsignal(channel + name, Pins(width)))
+        ios = [(bus_name , 0) + tuple(subsignals)]
+        return ios
+
+    def connect_to_pads(self, pads, mode="master"):
+        assert mode in ["slave", "master"]
+        r = []
+        def swap_mode(mode): return "master" if mode == "slave" else "slave"
+        channel_modes = {
+            "aw": mode,
+            "w" : mode,
+            "b" : swap_mode(mode),
+            "ar": mode,
+            "r" : swap_mode(mode),
+        }
+        for channel, mode in channel_modes.items():
+            for name, width in [("valid", 1)] + getattr(self, channel).description.payload_layout:
+                sig  = getattr(getattr(self, channel), name)
+                pad  = getattr(pads, channel + name)
+                if mode == "master":
+                    r.append(pad.eq(sig))
+                else:
+                    r.append(sig.eq(pad))
+            for name, width in [("ready", 1)]:
+                sig  = getattr(getattr(self, channel), name)
+                pad  = getattr(pads, channel + name)
+                if mode == "master":
+                    r.append(sig.eq(pad))
+                else:
+                    r.append(pad.eq(sig))
+        return r
 
 # AXI Bursts to Beats ------------------------------------------------------------------------------
 
@@ -336,3 +376,78 @@ class AXI2Wishbone(Module):
         axi2axi_lite      = AXI2AXILite(axi, axi_lite)
         axi_lite2wishbone = AXILite2Wishbone(axi_lite, wishbone, base_address)
         self.submodules += axi2axi_lite, axi_lite2wishbone
+
+# Wishbone to AXILite ------------------------------------------------------------------------------
+
+class Wishbone2AXILite(Module):
+    def __init__(self, wishbone, axi_lite, base_address=0x00000000):
+        wishbone_adr_shift = log2_int(axi_lite.data_width//8)
+        assert axi_lite.data_width    == len(wishbone.dat_r)
+        assert axi_lite.address_width == len(wishbone.adr) + wishbone_adr_shift
+
+        _cmd_done  = Signal()
+        _data_done = Signal()
+        _addr      = Signal(len(wishbone.adr))
+        self.comb += _addr.eq(wishbone.adr - base_address//4)
+
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            NextValue(_cmd_done,  0),
+            NextValue(_data_done, 0),
+            If(wishbone.stb & wishbone.cyc,
+                If(wishbone.we,
+                    NextState("WRITE")
+                ).Else(
+                    NextState("READ")
+                )
+            )
+        )
+        fsm.act("WRITE",
+            # cmd
+            axi_lite.aw.valid.eq(~_cmd_done),
+            axi_lite.aw.addr[wishbone_adr_shift:].eq(_addr),
+            If(axi_lite.aw.valid & axi_lite.aw.ready,
+                NextValue(_cmd_done, 1)
+            ),
+            # data
+            axi_lite.w.valid.eq(~_data_done),
+            axi_lite.w.data.eq(wishbone.dat_w),
+            axi_lite.w.strb.eq(wishbone.sel),
+            If(axi_lite.w.valid & axi_lite.w.ready,
+                NextValue(_data_done, 1),
+            ),
+            # resp
+            axi_lite.b.ready.eq(_cmd_done & _data_done),
+            If(axi_lite.b.valid & axi_lite.b.ready,
+                If(axi_lite.b.resp == RESP_OKAY,
+                    wishbone.ack.eq(1),
+                    NextState("IDLE")
+                ).Else(
+                    NextState("ERROR")
+                )
+            )
+        )
+        fsm.act("READ",
+            # cmd
+            axi_lite.ar.valid.eq(~_cmd_done),
+            axi_lite.ar.addr[wishbone_adr_shift:].eq(_addr),
+            If(axi_lite.ar.valid & axi_lite.ar.ready,
+                NextValue(_cmd_done, 1)
+            ),
+            # data & resp
+            axi_lite.r.ready.eq(_cmd_done),
+            If(axi_lite.r.valid & axi_lite.r.ready,
+                If(axi_lite.r.resp == RESP_OKAY,
+                    wishbone.dat_r.eq(axi_lite.r.data),
+                    wishbone.ack.eq(1),
+                    NextState("IDLE"),
+                ).Else(
+                    NextState("ERROR")
+                )
+            )
+        )
+        fsm.act("ERROR",
+            wishbone.ack.eq(1),
+            wishbone.err.eq(1),
+            NextState("IDLE")
+        )

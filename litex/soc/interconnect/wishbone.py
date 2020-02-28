@@ -13,6 +13,7 @@ from migen.genlib.misc import split, displacer, chooser, WaitTimer
 from migen.genlib.fsm import FSM, NextState
 
 from litex.soc.interconnect import csr
+from litex.build.generic_platform import *
 
 # TODO: rewrite without FlipFlop
 
@@ -68,6 +69,31 @@ class Interface(Record):
         yield self.we.eq(0)
         yield from self._do_transaction()
         return (yield self.dat_r)
+
+    def get_ios(self, bus_name="wb"):
+        subsignals = []
+        for name, width, direction in self.layout:
+            subsignals.append(Subsignal(name, Pins(width)))
+        ios = [(bus_name , 0) + tuple(subsignals)]
+        return ios
+
+    def connect_to_pads(self, pads, mode="master"):
+        assert mode in ["slave", "master"]
+        r = []
+        for name, width, direction in self.layout:
+            sig  = getattr(self, name)
+            pad  = getattr(pads, name)
+            if mode == "master":
+                if direction == DIR_M_TO_S:
+                    r.append(pad.eq(sig))
+                else:
+                    r.append(sig.eq(pad))
+            else:
+                if direction == DIR_S_TO_M:
+                    r.append(pad.eq(sig))
+                else:
+                    r.append(sig.eq(pad))
+        return r
 
 
 class InterconnectPointToPoint(Module):
@@ -495,7 +521,7 @@ class Cache(Module):
     This module is a write-back wishbone cache that can be used as a L2 cache.
     Cachesize (in 32-bit words) is the size of the data store and must be a power of 2
     """
-    def __init__(self, cachesize, master, slave):
+    def __init__(self, cachesize, master, slave, reverse=True):
         self.master = master
         self.slave = slave
 
@@ -538,12 +564,12 @@ class Cache(Module):
             ).Else(
                 data_port.dat_w.eq(Replicate(master.dat_w, max(dw_to//dw_from, 1))),
                 If(master.cyc & master.stb & master.we & master.ack,
-                    displacer(master.sel, adr_offset, data_port.we, 2**offsetbits, reverse=True)
+                    displacer(master.sel, adr_offset, data_port.we, 2**offsetbits, reverse=reverse)
                 )
             ),
             chooser(data_port.dat_r, word, slave.dat_w),
             slave.sel.eq(2**(dw_to//8)-1),
-            chooser(data_port.dat_r, adr_offset_r, master.dat_r, reverse=True)
+            chooser(data_port.dat_r, adr_offset_r, master.dat_r, reverse=reverse)
         ]
 
 
@@ -606,7 +632,10 @@ class Cache(Module):
                 If(tag_do.dirty,
                     NextState("EVICT")
                 ).Else(
-                    NextState("REFILL_WRTAG")
+                    # Write the tag first to set the slave address
+                    tag_port.we.eq(1),
+                    word_clr.eq(1),
+                    NextState("REFILL")
                 )
             )
         )
@@ -618,15 +647,12 @@ class Cache(Module):
             If(slave.ack,
                 word_inc.eq(1),
                  If(word_is_last(word),
-                    NextState("REFILL_WRTAG")
+                    # Write the tag first to set the slave address
+                    tag_port.we.eq(1),
+                    word_clr.eq(1),
+                    NextState("REFILL")
                 )
             )
-        )
-        fsm.act("REFILL_WRTAG",
-            # Write the tag first to set the slave address
-            tag_port.we.eq(1),
-            word_clr.eq(1),
-            NextState("REFILL")
         )
         fsm.act("REFILL",
             slave.stb.eq(1),

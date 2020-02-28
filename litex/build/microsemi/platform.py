@@ -1,9 +1,10 @@
-# This file is Copyright (c) 2018 Florent Kermarrec <florent@enjoy-digital.fr>
+# This file is Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # License: BSD
 
 from litex.build.generic_platform import GenericPlatform
 from litex.build.microsemi import common, libero_soc
 
+# MicrosemiPlatform --------------------------------------------------------------------------------
 
 class MicrosemiPlatform(GenericPlatform):
     bitstream_ext = ".bit"
@@ -27,6 +28,7 @@ class MicrosemiPlatform(GenericPlatform):
         return self.toolchain.build(self, *args, **kwargs)
 
     def add_period_constraint(self, clk, period):
+        clk.attr.add("keep")
         if hasattr(clk, "p"):
             clk = clk.p
         self.toolchain.add_period_constraint(self, clk, period)
@@ -36,4 +38,6 @@ class MicrosemiPlatform(GenericPlatform):
             from_ = from_.p
         if hasattr(to, "p"):
             to = to.p
+        from_.attr.add("keep")
+        to.attr.add("keep")
         self.toolchain.add_false_path_constraint(self, from_, to)

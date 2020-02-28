@@ -41,7 +41,7 @@ class XilinxClocking(Module, AutoCSR):
             raise ValueError
         self.clkin_freq = freq
 
-    def create_clkout(self, cd, freq, phase=0, buf="bufg", margin=1e-2, with_reset=True):
+    def create_clkout(self, cd, freq, phase=0, buf="bufg", margin=1e-2, with_reset=True, ce=None):
         assert self.nclkouts < self.nclkouts_max
         clkout = Signal()
         self.clkouts[self.nclkouts] = (clkout, freq, phase, margin)
@@ -57,8 +57,14 @@ class XilinxClocking(Module, AutoCSR):
                 self.specials += Instance("BUFG", i_I=clkout, o_O=clkout_buf)
             elif buf == "bufr":
                 self.specials += Instance("BUFR", i_I=clkout, o_O=clkout_buf)
+            elif buf == "bufgce":
+                if ce is None:
+                    raise ValueError("BUFGCE requires user to provide a clock enable ce Signal")
+                self.specials += Instance("BUFGCE", i_I=clkout, o_O=clkout_buf, i_CE=ce)
+            elif buf == "bufio":
+                self.specials += Instance("BUFIO", i_I=clkout, o_O=clkout_buf)
             else:
-                raise ValueError
+                raise ValueError("Unsupported clock buffer: {}".format(buf))
 
     def compute_config(self):
         config = {}
@@ -74,7 +80,7 @@ class XilinxClocking(Module, AutoCSR):
                         valid = False
                         for d in range(*self.clkout_divide_range):
                             clk_freq = vco_freq/d
-                            if abs(clk_freq - f) < f*m:
+                            if abs(clk_freq - f) <= f*m:
                                 config["clkout{}_freq".format(n)]   = clk_freq
                                 config["clkout{}_divide".format(n)] = d
                                 config["clkout{}_phase".format(n)]  = p
@@ -91,33 +97,40 @@ class XilinxClocking(Module, AutoCSR):
         raise ValueError("No PLL config found")
 
     def expose_drp(self):
-        self.drp_reset = CSR()
-        self.drp_read  = CSR()
-        self.drp_write = CSR()
-        self.drp_drdy  = CSRStatus()
-        self.drp_adr   = CSRStorage(7)
-        self.drp_dat_w = CSRStorage(16)
-        self.drp_dat_r = CSRStatus(16)
+        self.drp_reset  = CSR()
+        self.drp_locked = CSRStatus()
+        self.drp_read   = CSR()
+        self.drp_write  = CSR()
+        self.drp_drdy   = CSRStatus()
+        self.drp_adr    = CSRStorage(7)
+        self.drp_dat_w  = CSRStorage(16)
+        self.drp_dat_r  = CSRStatus(16)
 
         # # #
+
+        den_pipe = Signal()
+        dwe_pipe = Signal()
 
         drp_drdy = Signal()
         self.params.update(
             i_DCLK  = ClockSignal(),
-            i_DWE   = self.drp_write.re,
-            i_DEN   = self.drp_read.re | self.drp_write.re,
+            i_DWE   = dwe_pipe,
+            i_DEN   = den_pipe,
             o_DRDY  = drp_drdy,
             i_DADDR = self.drp_adr.storage,
             i_DI    = self.drp_dat_w.storage,
             o_DO    = self.drp_dat_r.status
         )
         self.sync += [
+            den_pipe.eq(self.drp_read.re | self.drp_write.re),
+            dwe_pipe.eq(self.drp_write.re),
             If(self.drp_read.re | self.drp_write.re,
                 self.drp_drdy.status.eq(0)
             ).Elif(drp_drdy,
                 self.drp_drdy.status.eq(1)
             )
         ]
+        self.comb += self.drp_locked.status.eq(self.locked)
 
     def do_finalize(self):
         assert hasattr(self, "clkin")
@@ -224,7 +237,7 @@ class S7PLL(XilinxClocking):
         config = self.compute_config()
         pll_fb = Signal()
         self.params.update(
-            p_STARTUP_WAIT="FALSE", o_LOCKED=self.locked,
+            p_STARTUP_WAIT="FALSE", o_LOCKED=self.locked, i_RST=self.reset,
 
             # VCO
             p_REF_JITTER1=0.01, p_CLKIN1_PERIOD=1e9/self.clkin_freq,
@@ -261,7 +274,7 @@ class S7MMCM(XilinxClocking):
         config = self.compute_config()
         mmcm_fb = Signal()
         self.params.update(
-            p_BANDWIDTH="OPTIMIZED", o_LOCKED=self.locked,
+            p_BANDWIDTH="OPTIMIZED", o_LOCKED=self.locked, i_RST=self.reset,
 
             # VCO
             p_REF_JITTER1=0.01, p_CLKIN1_PERIOD=1e9/self.clkin_freq,
@@ -279,8 +292,8 @@ class S7MMCM(XilinxClocking):
 
 
 class S7IDELAYCTRL(Module):
-    def __init__(self, cd):
-        reset_counter = Signal(4, reset=15)
+    def __init__(self, cd, reset_cycles=16):
+        reset_counter = Signal(log2_int(reset_cycles), reset=reset_cycles - 1)
         ic_reset      = Signal(reset=1)
         sync = getattr(self.sync, cd.name)
         sync += \
@@ -318,7 +331,7 @@ class USPLL(XilinxClocking):
         config = self.compute_config()
         pll_fb = Signal()
         self.params.update(
-            p_STARTUP_WAIT="FALSE", o_LOCKED=self.locked,
+            p_STARTUP_WAIT="FALSE", o_LOCKED=self.locked, i_RST=self.reset,
 
             # VCO
             p_REF_JITTER1=0.01, p_CLKIN1_PERIOD=1e9/self.clkin_freq,
@@ -354,7 +367,7 @@ class USMMCM(XilinxClocking):
         config = self.compute_config()
         mmcm_fb = Signal()
         self.params.update(
-            p_BANDWIDTH="OPTIMIZED", o_LOCKED=self.locked,
+            p_BANDWIDTH="OPTIMIZED", o_LOCKED=self.locked, i_RST=self.reset,
 
             # VCO
             p_REF_JITTER1=0.01, p_CLKIN1_PERIOD=1e9/self.clkin_freq,
@@ -372,8 +385,8 @@ class USMMCM(XilinxClocking):
 
 
 class USIDELAYCTRL(Module):
-    def __init__(self, cd):
-        reset_counter = Signal(6, reset=63)
+    def __init__(self, cd, reset_cycles=64):
+        reset_counter = Signal(log2_int(reset_cycles), reset=reset_cycles - 1)
         ic_reset = Signal(reset=1)
         sync = getattr(self.sync, cd.name)
         sync += \
@@ -446,7 +459,7 @@ class iCE40PLL(Module):
                         valid = False
                         for divq in range(*self.divq_range):
                             clk_freq = vco_freq/(2**divq)
-                            if abs(clk_freq - f) < f*m:
+                            if abs(clk_freq - f) <= f*m:
                                 config["divq"] = divq
                                 valid = True
                                 break
@@ -494,7 +507,7 @@ class ECP5PLL(Module):
     clko_div_range  = (1, 128+1)
     clki_freq_range = (    8e6,  400e6)
     clko_freq_range = (3.125e6,  400e6)
-    vco_freq_range  = (  550e6, 1250e6)
+    vco_freq_range  = (  400e6,  800e6)
 
     def __init__(self):
         self.reset      = Signal()
@@ -539,7 +552,7 @@ class ECP5PLL(Module):
                     valid = False
                     for d in range(*self.clko_div_range):
                         clk_freq = vco_freq/d
-                        if abs(clk_freq - f) < f*m:
+                        if abs(clk_freq - f) <= f*m:
                             config["clko{}_freq".format(n)] = clk_freq
                             config["clko{}_div".format(n)] = d
                             config["clko{}_phase".format(n)] = p

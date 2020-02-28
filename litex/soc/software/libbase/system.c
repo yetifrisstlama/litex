@@ -56,6 +56,12 @@ void flush_cpu_icache(void)
 #elif defined (__rocket__)
 	/* FIXME: do something useful here! */
 	asm volatile("nop");
+#elif defined (__microwatt__)
+	/* FIXME: do something useful here! */
+        asm volatile("nop");
+#elif defined (__blackparrot__)
+	/* TODO: BP do something useful here! */
+	asm volatile("nop");
 #else
 #error Unsupported architecture
 #endif
@@ -99,6 +105,13 @@ void flush_cpu_dcache(void)
 	/* no data cache */
 	asm volatile("nop");
 #elif defined (__rocket__)
+	/* FIXME: do something useful here! */
+	asm volatile("nop");
+#elif defined (__microwatt__)
+	/* FIXME: do something useful here! */
+	asm volatile("nop");
+/*SC_add: What BB does here?*/
+#elif defined (__blackparrot__)
 	/* FIXME: do something useful here! */
 	asm volatile("nop");
 #else

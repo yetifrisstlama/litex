@@ -41,12 +41,16 @@ from litex.soc.cores.cpu import CPU
 CPU_VARIANTS = {
     "standard": "freechips.rocketchip.system.LitexConfig",
     "linux":    "freechips.rocketchip.system.LitexLinuxConfig",
+    "linuxd":   "freechips.rocketchip.system.LitexLinuxDConfig",
+    "linuxq":   "freechips.rocketchip.system.LitexLinuxQConfig",
     "full":     "freechips.rocketchip.system.LitexFullConfig",
 }
 
 GCC_FLAGS = {
     "standard": "-march=rv64imac   -mabi=lp64 ",
     "linux":    "-march=rv64imac   -mabi=lp64 ",
+    "linuxd":   "-march=rv64imac   -mabi=lp64 ",
+    "linuxq":   "-march=rv64imac   -mabi=lp64 ",
     "full":     "-march=rv64imafdc -mabi=lp64 ",
 }
 
@@ -54,6 +58,8 @@ AXI_DATA_WIDTHS = {
     # variant : (mem, mmio)
     "standard": ( 64,  64),
     "linux":    ( 64,  64),
+    "linuxd":   (128,  64),
+    "linuxq":   (256,  64),
     "full":     ( 64,  64),
 }
 
@@ -61,7 +67,7 @@ class RocketRV64(CPU):
     name                 = "rocket"
     data_width           = 64
     endianness           = "little"
-    gcc_triple           = ("riscv64-unknown-elf")
+    gcc_triple           = ("riscv64-unknown-elf", "riscv64-linux")
     linker_output_format = "elf64-littleriscv"
     io_regions           = {0x10000000: 0x70000000} # origin, length
 

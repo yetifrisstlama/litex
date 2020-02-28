@@ -40,6 +40,7 @@
 #endif
 
 #include "sdram.h"
+#include "sdcard.h"
 #include "boot.h"
 
 /* General address space functions */
@@ -376,6 +377,12 @@ static void help(void)
 #ifdef CSR_SDRAM_BASE
 	puts("memtest    - run a memory test");
 #endif
+	puts("");
+#ifdef CSR_SDCORE_BASE
+	puts("sdclk <freq>   - SDCard set clk frequency (Mhz)");
+	puts("sdinit         - SDCard initialization");
+	puts("sdtest <loops> - SDCard test");
+#endif
 }
 
 static char *get_token(char **str)
@@ -458,6 +465,12 @@ static void do_command(char *c)
 	else if(strcmp(token, "sdrlevel") == 0) sdrlevel();
 #endif
 	else if(strcmp(token, "memtest") == 0) memtest();
+#endif
+
+#ifdef CSR_SDCORE_BASE
+	else if(strcmp(token, "sdclk") == 0) sdclk_set_clk(atoi(get_token(&c)));
+	else if(strcmp(token, "sdinit") == 0) sdcard_init();
+	else if(strcmp(token, "sdtest") == 0) sdcard_test(atoi(get_token(&c)));
 #endif
 
 	else if(strcmp(token, "") != 0)
@@ -566,8 +579,10 @@ int main(int i, char **c)
 	printf("\e[1m       / /  (_) /____ | |/_/\e[0m\n");
 	printf("\e[1m      / /__/ / __/ -_)>  <\e[0m\n");
 	printf("\e[1m     /____/_/\\__/\\__/_/|_|\e[0m\n");
+	printf("\e[1m   Build your hardware, easily!\e[0m\n");
 	printf("\n");
-	printf(" (c) Copyright 2012-2019 Enjoy-Digital\n");
+	printf(" (c) Copyright 2012-2020 Enjoy-Digital\n");
+	printf(" (c) Copyright 2007-2015 M-Labs\n");
 	printf("\n");
 	printf(" BIOS built on "__DATE__" "__TIME__"\n");
 	crcbios();
@@ -589,6 +604,8 @@ int main(int i, char **c)
 	printf("Minerva");
 #elif __rocket__
 	printf("RocketRV64[imac]");
+#elif __blackparrot__
+        printf("BlackParrotRV64[ia]");
 #else
 	printf("Unknown");
 #endif
@@ -603,9 +620,10 @@ int main(int i, char **c)
 #endif
 	printf("\n");
 
-	sdr_ok = 1;
+        sdr_ok = 1;
+
 #if defined(CSR_ETHMAC_BASE) || defined(CSR_SDRAM_BASE)
-	printf("--========== \e[1mInitialization\e[0m ============--\n");
+    printf("--========== \e[1mInitialization\e[0m ============--\n");
 #ifdef CSR_ETHMAC_BASE
 	eth_init();
 #endif
@@ -628,7 +646,7 @@ int main(int i, char **c)
 	}
 
 	printf("--============= \e[1mConsole\e[0m ================--\n");
-	while(1) {
+    while(1) {
 		putsnonl("\e[92;1mlitex\e[0m> ");
 		readstr(buffer, 64);
 		do_command(buffer);

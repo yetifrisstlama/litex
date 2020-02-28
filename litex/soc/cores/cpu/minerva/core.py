@@ -17,7 +17,8 @@ class Minerva(CPU):
     name                 = "minerva"
     data_width           = 32
     endianness           = "little"
-    gcc_triple           = ("riscv64-unknown-elf", "riscv32-unknown-elf", "riscv-none-embed")
+    gcc_triple           = ("riscv64-unknown-elf", "riscv32-unknown-elf", "riscv-none-embed",
+                            "riscv64-linux")
     linker_output_format = "elf32-littleriscv"
     io_regions           = {0x80000000: 0x80000000} # origin, length
 
@@ -29,7 +30,7 @@ class Minerva(CPU):
         return flags
 
     def __init__(self, platform, variant="standard"):
-        assert variant is "standard", "Unsupported variant %s" % variant
+        assert variant in CPU_VARIANTS, "Unsupported variant %s" % variant
         self.platform  = platform
         self.variant   = variant
         self.reset     = Signal()
@@ -48,7 +49,7 @@ class Minerva(CPU):
         self.cpu_params = dict(
             # clock / reset
             i_clk=ClockSignal(),
-            i_rst=ResetSignal(),
+            i_rst=ResetSignal() | self.reset,
 
             # interrupts
             i_timer_interrupt    = 0,

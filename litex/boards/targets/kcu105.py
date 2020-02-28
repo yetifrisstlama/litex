@@ -23,15 +23,12 @@ from liteeth.mac import LiteEthMAC
 
 class _CRG(Module):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys = ClockDomain()
-        self.clock_domains.cd_sys4x = ClockDomain(reset_less=True)
+        self.clock_domains.cd_sys    = ClockDomain()
+        self.clock_domains.cd_sys4x  = ClockDomain(reset_less=True)
         self.clock_domains.cd_clk200 = ClockDomain()
-        self.clock_domains.cd_ic = ClockDomain()
+        self.clock_domains.cd_ic     = ClockDomain()
 
         # # #
-
-        self.cd_sys.clk.attr.add("keep")
-        self.cd_sys4x.clk.attr.add("keep")
 
         self.submodules.pll = pll = USMMCM(speedgrade=-2)
         self.comb += pll.reset.eq(platform.request("cpu_reset"))
@@ -80,26 +77,28 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCSDRAM):
-    def __init__(self, sys_clk_freq=int(125e6), integrated_rom_size=0x8000, **kwargs):
+    def __init__(self, sys_clk_freq=int(125e6), **kwargs):
         platform = kcu105.Platform()
-        SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
-                         integrated_rom_size=integrated_rom_size,
-                         integrated_sram_size=0x8000,
-                          **kwargs)
 
+        # SoCSDRAM ---------------------------------------------------------------------------------
+        SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq, **kwargs)
+
+        # CRG --------------------------------------------------------------------------------------
         self.submodules.crg = _CRG(platform, sys_clk_freq)
 
-        # sdram
-        self.submodules.ddrphy = usddrphy.USDDRPHY(platform.request("ddram"), memtype="DDR4", sys_clk_freq=sys_clk_freq)
-        self.add_csr("ddrphy")
-        self.add_constant("USDDRPHY", None)
-        sdram_module = EDY4016A(sys_clk_freq, "1:4")
-        self.register_sdram(self.ddrphy,
-                            sdram_module.geom_settings,
-                            sdram_module.timing_settings,
-                            main_ram_size_limit=0x40000000)
+        # DDR4 SDRAM -------------------------------------------------------------------------------
+        if not self.integrated_main_ram_size:
+            self.submodules.ddrphy = usddrphy.USDDRPHY(platform.request("ddram"),
+                memtype      = "DDR4",
+                sys_clk_freq = sys_clk_freq)
+            self.add_csr("ddrphy")
+            self.add_constant("USDDRPHY", None)
+            sdram_module = EDY4016A(sys_clk_freq, "1:4")
+            self.register_sdram(self.ddrphy,
+                geom_settings       = sdram_module.geom_settings,
+                timing_settings     = sdram_module.timing_settings)
 
-# EthernetSoC ------------------------------------------------------------------------------------------
+# EthernetSoC --------------------------------------------------------------------------------------
 
 class EthernetSoC(BaseSoC):
     mem_map = {
@@ -108,29 +107,33 @@ class EthernetSoC(BaseSoC):
     mem_map.update(BaseSoC.mem_map)
 
     def __init__(self, **kwargs):
-        BaseSoC.__init__(self, integrated_rom_size=0x10000, **kwargs)
+        BaseSoC.__init__(self, **kwargs)
 
-        self.comb += self.platform.request("sfp_tx_disable_n", 0).eq(1)
+        # Ethernet ---------------------------------------------------------------------------------
+        # phy
         self.submodules.ethphy = KU_1000BASEX(self.crg.cd_clk200.clk,
-            self.platform.request("sfp", 0), sys_clk_freq=self.clk_freq)
+            data_pads    = self.platform.request("sfp", 0),
+            sys_clk_freq = self.clk_freq)
         self.add_csr("ethphy")
-        self.submodules.ethmac = LiteEthMAC(phy=self.ethphy, dw=32,
-            interface="wishbone", endianness=self.cpu.endianness)
-        self.add_wb_slave(self.mem_map["ethmac"], self.ethmac.bus, 0x2000)
+        self.comb += self.platform.request("sfp_tx_disable_n", 0).eq(1)
+        self.platform.add_platform_command("set_property SEVERITY {{Warning}} [get_drc_checks REQP-1753]")
+        # mac
+        self.submodules.ethmac = LiteEthMAC(
+            phy        = self.ethphy,
+            dw         = 32,
+            interface  = "wishbone",
+            endianness = self.cpu.endianness)
         self.add_memory_region("ethmac", self.mem_map["ethmac"], 0x2000, type="io")
+        self.add_wb_slave(self.mem_map["ethmac"], self.ethmac.bus, 0x2000)
         self.add_csr("ethmac")
         self.add_interrupt("ethmac")
-
-        self.ethphy.cd_eth_rx.clk.attr.add("keep")
-        self.ethphy.cd_eth_tx.clk.attr.add("keep")
+        # timing constraints
         self.platform.add_period_constraint(self.ethphy.cd_eth_rx.clk, 1e9/125e6)
         self.platform.add_period_constraint(self.ethphy.cd_eth_tx.clk, 1e9/125e6)
         self.platform.add_false_path_constraints(
             self.crg.cd_sys.clk,
             self.ethphy.cd_eth_rx.clk,
             self.ethphy.cd_eth_tx.clk)
-
-        self.platform.add_platform_command("set_property SEVERITY {{Warning}} [get_drc_checks REQP-1753]")
 
 # Build --------------------------------------------------------------------------------------------
 
