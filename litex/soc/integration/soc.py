@@ -20,10 +20,6 @@ from litex.soc.interconnect import wishbone
 from litex.soc.interconnect import wishbone2csr
 from litex.soc.interconnect import axi
 
-from litedram.core import LiteDRAMCore
-from litedram.frontend.wishbone import LiteDRAMWishbone2Native
-from litedram.frontend.axi import LiteDRAMAXI2Native
-
 # TODO:
 # - replace raise with exit on logging error.
 # - cleanup SoCCSRRegion
@@ -31,6 +27,10 @@ from litedram.frontend.axi import LiteDRAMAXI2Native
 logging.basicConfig(level=logging.INFO)
 
 # Helpers ------------------------------------------------------------------------------------------
+
+def auto_int(x):
+    return int(x, 0)
+
 def colorer(s, color="bright"):
     header  = {
         "bright": "\x1b[1m",
@@ -58,14 +58,19 @@ class SoCRegion:
         self.logger    = logging.getLogger("SoCRegion")
         self.origin    = origin
         self.size      = size
+        if size != 2**log2_int(size, False):
+            self.logger.info("Region size {} internally from {} to {}.".format(
+                colorer("rounded", color="cyan"),
+                colorer("0x{:08x}".format(size)),
+                colorer("0x{:08x}".format(2**log2_int(size, False)))))
+        self.size_pow2 = 2**log2_int(size, False)
         self.mode      = mode
         self.cached    = cached
         self.linker    = linker
 
     def decoder(self, bus):
         origin = self.origin
-        size   = self.size
-        size   = 2**log2_int(size, False)
+        size   = self.size_pow2
         if (origin & (size - 1)) != 0:
             self.logger.error("Origin needs to be aligned on size:")
             self.logger.error(self)
@@ -224,14 +229,14 @@ class SoCBusHandler(Module):
         # Iterate on Search_Regions to find a Candidate
         for _, search_region in search_regions.items():
             origin = search_region.origin
-            while (origin + size) < (search_region.origin + search_region.size):
+            while (origin + size) < (search_region.origin + search_region.size_pow2):
                 # Create a Candicate.
                 candidate = SoCRegion(origin=origin, size=size, cached=cached)
                 overlap   = False
                 # Check Candidate does not overlap with allocated existing regions
                 for _, allocated in self.regions.items():
                     if self.check_regions_overlap({"0": allocated, "1": candidate}) is not None:
-                        origin  = allocated.origin + allocated.size
+                        origin  = allocated.origin + allocated.size_pow2
                         overlap = True
                         break
                 if not overlap:
@@ -251,9 +256,9 @@ class SoCBusHandler(Module):
                 if r0.linker or r1.linker:
                     if not check_linker:
                         continue
-                if r0.origin >= (r1.origin + r1.size):
+                if r0.origin >= (r1.origin + r1.size_pow2):
                     continue
-                if r1.origin >= (r0.origin + r0.size):
+                if r1.origin >= (r0.origin + r0.size_pow2):
                     continue
                 return (n0, n1)
             i += 1
@@ -656,6 +661,8 @@ class SoC(Module):
         self.logger.info(colorer("-"*80, color="bright"))
         self.logger.info(colorer("Creating SoC... ({})".format(build_time())))
         self.logger.info(colorer("-"*80, color="bright"))
+        self.logger.info("FPGA device : {}.".format(platform.device))
+        self.logger.info("System clock: {:3.2f}MHz.".format(sys_clk_freq/1e6))
 
         # SoC attributes ---------------------------------------------------------------------------
         self.platform     = platform
@@ -848,13 +855,26 @@ class SoC(Module):
 
         # SoC CPU Check ----------------------------------------------------------------------------
         if not isinstance(self.cpu, cpu.CPUNone):
-            for name in ["rom", "sram"]:
-                if name not in self.bus.regions.keys():
-                    self.logger.error("CPU needs {} Region to be {} as Bus or Linker Region.".format(
-                        colorer(name),
-                        colorer("defined", color="red")))
-                    self.logger.error(self.bus)
-                    raise
+            if "sram" not in self.bus.regions.keys():
+                self.logger.error("CPU needs {} Region to be {} as Bus or Linker Region.".format(
+                    colorer("sram"),
+                    colorer("defined", color="red")))
+                self.logger.error(self.bus)
+                raise
+            cpu_reset_address_valid = False
+            for name, container in self.bus.regions.items():
+                if self.bus.check_region_is_in(
+                    region    = SoCRegion(origin=self.cpu.reset_address, size=self.bus.data_width//8),
+                    container = container):
+                    cpu_reset_address_valid = True
+                    if name == "rom":
+                        self.cpu.use_rom = True
+            if not cpu_reset_address_valid:
+                self.logger.error("CPU needs {} to be in a {} Region.".format(
+                    colorer("reset address 0x{:08x}".format(self.cpu.reset_address)),
+                    colorer("defined", color="red")))
+                self.logger.error(self.bus)
+                raise
 
         # SoC IRQ Interconnect ---------------------------------------------------------------------
         if hasattr(self, "cpu"):
@@ -888,10 +908,10 @@ class LiteXSoC(SoC):
         self.csr.add(name + "_mem", use_loc_if_exists=True)
 
     # Add UART -------------------------------------------------------------------------------------
-    def add_uart(self, name, baudrate=115200):
+    def add_uart(self, name, baudrate=115200, fifo_depth=16):
         from litex.soc.cores import uart
         if name in ["stub", "stream"]:
-            self.submodules.uart = uart.UART()
+            self.submodules.uart = uart.UART(tx_fifo_depth=0, rx_fifo_depth=0)
             if name == "stub":
                 self.comb += self.uart.sink.ready.eq(1)
         elif name == "bridge":
@@ -914,7 +934,9 @@ class LiteXSoC(SoC):
                     pads     = self.platform.request(name),
                     clk_freq = self.sys_clk_freq,
                     baudrate = baudrate)
-            self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy))
+            self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy,
+                tx_fifo_depth = fifo_depth,
+                rx_fifo_depth = fifo_depth))
         self.csr.add("uart_phy", use_loc_if_exists=True)
         self.csr.add("uart", use_loc_if_exists=True)
         self.irq.add("uart", use_loc_if_exists=True)
@@ -927,7 +949,12 @@ class LiteXSoC(SoC):
         l2_cache_full_memory_we = True,
         **kwargs):
 
-        # LiteDRAM core ----------------------------------------------------------------------------
+        # Imports
+        from litedram.core import LiteDRAMCore
+        from litedram.frontend.wishbone import LiteDRAMWishbone2Native
+        from litedram.frontend.axi import LiteDRAMAXI2Native
+
+        # LiteDRAM core
         self.submodules.sdram = LiteDRAMCore(
             phy             = phy,
             geom_settings   = module.geom_settings,
@@ -936,11 +963,11 @@ class LiteXSoC(SoC):
             **kwargs)
         self.csr.add("sdram")
 
-        # LiteDRAM port ----------------------------------------------------------------------------
+        # LiteDRAM port
         port = self.sdram.crossbar.get_port()
         port.data_width = 2**int(log2(port.data_width)) # Round to nearest power of 2
 
-        # SDRAM size -------------------------------------------------------------------------------
+        # SDRAM size
         sdram_size = 2**(module.geom_settings.bankbits +
                          module.geom_settings.rowbits +
                          module.geom_settings.colbits)*phy.settings.databits//8
@@ -979,11 +1006,11 @@ class LiteXSoC(SoC):
                     base_address = origin)
                 self.submodules += wishbone.Converter(mem_wb, litedram_wb)
         elif self.with_wishbone:
-            # Wishbone Slave SDRAM interface -------------------------------------------------------
+            # Wishbone Slave SDRAM interface
             wb_sdram = wishbone.Interface()
             self.bus.add_slave("main_ram", wb_sdram)
 
-            # L2 Cache -----------------------------------------------------------------------------
+            # L2 Cache
             if l2_cache_size != 0:
                 # Insert L2 cache inbetween Wishbone bus and LiteDRAM
                 l2_cache_size = max(l2_cache_size, int(2*port.data_width/8)) # Use minimal size if lower
@@ -1003,6 +1030,28 @@ class LiteXSoC(SoC):
                 self.submodules += wishbone.Converter(wb_sdram, litedram_wb)
             self.add_config("L2_SIZE", l2_cache_size)
 
-            # Wishbone Slave <--> LiteDRAM bridge --------------------------------------------------
+            # Wishbone Slave <--> LiteDRAM bridge
             self.submodules.wishbone_bridge = LiteDRAMWishbone2Native(litedram_wb, port,
                 base_address = self.bus.regions["main_ram"].origin)
+
+    # Add Ethernet ---------------------------------------------------------------------------------
+    def add_ethernet(self, phy):
+        # Imports
+        from liteeth.mac import LiteEthMAC
+        # MAC
+        self.submodules.ethmac = LiteEthMAC(
+            phy        = phy,
+            dw         = 32,
+            interface  = "wishbone",
+            endianness = self.cpu.endianness)
+        ethmac_region = SoCRegion(size=0x2000, cached=False)
+        self.bus.add_slave(name="ethmac", slave=self.ethmac.bus, region=ethmac_region)
+        self.add_csr("ethmac")
+        self.add_interrupt("ethmac")
+        # Timing constraints
+        self.platform.add_period_constraint(phy.crg.cd_eth_rx.clk, 1e9/phy.rx_clk_freq)
+        self.platform.add_period_constraint(phy.crg.cd_eth_tx.clk, 1e9/phy.tx_clk_freq)
+        self.platform.add_false_path_constraints(
+            self.crg.cd_sys.clk,
+            phy.crg.cd_eth_rx.clk,
+            phy.crg.cd_eth_tx.clk)

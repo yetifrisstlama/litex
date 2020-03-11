@@ -360,6 +360,11 @@ static void help(void)
 	puts("crc        - compute CRC32 of a part of the address space");
 	puts("ident      - display identifier");
 	puts("");
+	puts("flush_cpu_dcache - flush CPU data cache");
+#ifdef CONFIG_L2_SIZE
+	puts("flush_l2_cache   - flush L2 cache");
+#endif
+	puts("");
 #ifdef CSR_CTRL_BASE
 	puts("reboot     - reset processor");
 #endif
@@ -382,6 +387,13 @@ static void help(void)
 	puts("sdclk <freq>   - SDCard set clk frequency (Mhz)");
 	puts("sdinit         - SDCard initialization");
 	puts("sdtest <loops> - SDCard test");
+#endif
+#ifdef USDDRPHY_DEBUG
+	puts("");
+	puts("sdram_cdly value                - Set SDRAM clk/cmd delay");
+	puts("sdram_cal                       - run SDRAM calibration");
+	puts("sdram_mpr                       - read SDRAM MPR");
+	puts("sdram_mrwr reg value            - write SDRAM mode registers");
 #endif
 }
 
@@ -429,9 +441,11 @@ static void do_command(char *c)
 	else if(strcmp(token, "crc") == 0) crc(get_token(&c), get_token(&c));
 	else if(strcmp(token, "ident") == 0) ident();
 
+	else if(strcmp(token, "flush_cpu_dcache") == 0) flush_cpu_dcache();
 #ifdef CONFIG_L2_SIZE
-	else if(strcmp(token, "flushl2") == 0) flush_l2_cache();
+	else if(strcmp(token, "flush_l2_cache") == 0) flush_l2_cache();
 #endif
+
 #ifdef CSR_CTRL_BASE
 	else if(strcmp(token, "reboot") == 0) reboot();
 #endif
@@ -472,7 +486,24 @@ static void do_command(char *c)
 	else if(strcmp(token, "sdinit") == 0) sdcard_init();
 	else if(strcmp(token, "sdtest") == 0) sdcard_test(atoi(get_token(&c)));
 #endif
-
+#ifdef USDDRPHY_DEBUG
+	else if(strcmp(token, "sdram_cdly") == 0)
+		ddrphy_cdly(atoi(get_token(&c)));
+	else if(strcmp(token, "sdram_cal") == 0)
+		sdrcal();
+	else if(strcmp(token, "sdram_mpr") == 0)
+		sdrmpr();
+	else if(strcmp(token, "sdram_mrwr") == 0) {
+		unsigned int reg;
+		unsigned int value;
+		reg = atoi(get_token(&c));
+		value = atoi(get_token(&c));
+		sdrsw();
+		printf("Writing 0x%04x to SDRAM mode register %d\n", value, reg);
+		sdrmrwr(reg, value);
+		sdrhw();
+	}
+#endif
 	else if(strcmp(token, "") != 0)
 		printf("Command not found\n");
 }

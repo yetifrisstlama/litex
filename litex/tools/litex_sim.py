@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # This file is Copyright (c) 2015-2020 Florent Kermarrec <florent@enjoy-digital.fr>
-# This file is Copyright (c) 2020 Piotr Binkowski <pbinkowski@antmicro.com>
+# This file is Copyright (c) 2020 Antmicro <www.antmicro.com>
 # This file is Copyright (c) 2017 Pierre-Olivier Vauboin <po@lambdaconcept>
 # License: BSD
 
@@ -168,7 +168,6 @@ class SimSoC(SoCSDRAM):
         # SoCSDRAM ---------------------------------------------------------------------------------
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
             ident               = "LiteX Simulation", ident_version=True,
-            with_uart           = False,
             l2_reverse          = False,
             **kwargs)
         # CRG --------------------------------------------------------------------------------------
@@ -176,7 +175,9 @@ class SimSoC(SoCSDRAM):
 
         # Serial -----------------------------------------------------------------------------------
         self.submodules.uart_phy = uart.RS232PHYModel(platform.request("serial"))
-        self.submodules.uart = uart.UART(self.uart_phy)
+        self.submodules.uart = uart.UART(self.uart_phy,
+            tx_fifo_depth=kwargs["uart_fifo_depth"],
+            rx_fifo_depth=kwargs["uart_fifo_depth"])
         self.add_csr("uart")
         self.add_interrupt("uart")
 
@@ -285,7 +286,7 @@ def main():
     if "cpu_type" in soc_kwargs:
         if soc_kwargs["cpu_type"] in ["mor1kx", "lm32"]:
             cpu_endianness = "big"
-
+    soc_kwargs["with_uart"] = False
     if args.rom_init:
         soc_kwargs["integrated_rom_init"] = get_mem_data(args.rom_init, cpu_endianness)
     if not args.with_sdram:
