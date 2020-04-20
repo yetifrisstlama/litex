@@ -39,7 +39,7 @@ LiteX already supports various softcores CPUs: VexRiscv, Rocket, LM32, Mor1kx, P
 
 | Name                                                         | Build Status                                                            | Description                   |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- | ----------------------------- |
-| [LiteDRAM](http://github.com/enjoy-digital/litedram)         | [![](https://travis-ci.org/enjoy-digital/litedram.svg?branch=master)](https://travis-ci.org/enjoy-digital/litedram)     | DRAM        |
+| [LiteDRAM](http://github.com/enjoy-digital/litedram)         | [![](https://travis-ci.com/enjoy-digital/litedram.svg?branch=master)](https://travis-ci.com/enjoy-digital/litedram)     | DRAM        |
 | [LiteEth](http://github.com/enjoy-digital/liteeth)           | [![](https://travis-ci.com/enjoy-digital/liteeth.svg?branch=master)](https://travis-ci.com/enjoy-digital/liteeth)       | Ethernet                      |
 | [LitePCIe](http://github.com/enjoy-digital/litepcie)         | [![](https://travis-ci.com/enjoy-digital/litepcie.svg?branch=master)](https://travis-ci.com/enjoy-digital/litepcie)     | PCIe                          |
 | [LiteSATA](http://github.com/enjoy-digital/litesata)         | [![](https://travis-ci.com/enjoy-digital/litesata.svg?branch=master)](https://travis-ci.com/enjoy-digital/litesata)     | SATA                          |
@@ -113,22 +113,9 @@ $ ./litex_setup.py update
 > **Note:** On Windows, it's possible you'll have to set `SHELL` environment variable to `SHELL=cmd.exe`.
 
 3. Install a RISC-V toolchain (Only if you want to test/create a SoC with a CPU):
-
-On Linux (Ubuntu):
 ```sh
-$ wget https://static.dev.sifive.com/dev-tools/riscv64-unknown-elf-gcc-8.1.0-2019.01.0-x86_64-linux-ubuntu14.tar.gz
-$ tar -xvf riscv64-unknown-elf-gcc-8.1.0-2019.01.0-x86_64-linux-ubuntu14.tar.gz
-$ export PATH=$PATH:$PWD/riscv64-unknown-elf-gcc-8.1.0-2019.01.0-x86_64-linux-ubuntu14/bin/
+$ ./litex_setup.py gcc
 ```
-On MacOS:
-```sh
-$ wget https://static.dev.sifive.com/dev-tools/riscv64-unknown-elf-gcc-8.3.0-2019.08.0-x86_64-apple-darwin.tar.gz
-$ tar -xvf riscv64-unknown-elf-gcc-8.3.0-2019.08.0-x86_64-apple-darwin.tar.gz
-$ export PATH=$PATH:$PWD/riscv64-unknown-elf-gcc-8.3.0-2019.08.0-x86_64-apple-darwin/bin/
-```
-On Windows:
-
-You can Get and install the RISC-V toolchain from https://gnutoolchains.com/risc-v/.
 
 4. Build the target of your board...:
 

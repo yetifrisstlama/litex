@@ -97,6 +97,7 @@ def nextpnr_ecp5_parse_device(device):
     return (family, size, speed_grade, package)
 
 nextpnr_ecp5_architectures = {
+    "lfe5u-12f"   : "12k",
     "lfe5u-25f"   : "25k",
     "lfe5u-45f"   : "45k",
     "lfe5u-85f"   : "85k",
@@ -168,7 +169,7 @@ class LatticeTrellisToolchain:
         "no_shreg_extract": None
     }
 
-    special_overrides = common.lattice_ecpx_trellis_special_overrides
+    special_overrides = common.lattice_ecp5_trellis_special_overrides
 
     def __init__(self):
         self.yosys_template   = _yosys_template

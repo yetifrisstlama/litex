@@ -54,8 +54,8 @@ class BaseSoC(SoCCore):
     def __init__(self, sys_clk_freq=int(75e6), with_ethernet=False, **kwargs):
         platform = nexys4ddr.Platform()
 
-        # SoCSDRAM ---------------------------------------------------------------------------------
-        SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq, **kwargs)
+        # SoCCore ----------------------------------_-----------------------------------------------
+        SoCCore.__init__(self, platform, clk_freq=sys_clk_freq, **kwargs)
 
         # CRG --------------------------------------------------------------------------------------
         self.submodules.crg = _CRG(platform, sys_clk_freq)
@@ -87,7 +87,8 @@ class BaseSoC(SoCCore):
 
     def add_sdcard(self):
         sdcard_pads = self.platform.request("sdcard")
-        self.comb += sdcard_pads.rst.eq(0)
+        if hasattr(sdcard_pads, "rst"):
+            self.comb += sdcard_pads.rst.eq(0)
         self.submodules.sdclk = SDClockerS7(sys_clk_freq=self.sys_clk_freq)
         self.submodules.sdphy = SDPHY(sdcard_pads, self.platform.device)
         self.submodules.sdcore = SDCore(self.sdphy)
@@ -122,6 +123,8 @@ def main():
                         help="system clock frequency (default=75MHz)")
     parser.add_argument("--with-ethernet", action="store_true",
                         help="enable Ethernet support")
+    parser.add_argument("--with-spi-sdcard", action="store_true",
+                        help="enable SPI-mode SDCard support")
     parser.add_argument("--with-sdcard", action="store_true",
                         help="enable SDCard support")
     args = parser.parse_args()
@@ -129,7 +132,11 @@ def main():
     soc = BaseSoC(sys_clk_freq=int(float(args.sys_clk_freq)),
         with_ethernet=args.with_ethernet,
         **soc_sdram_argdict(args))
+    if args.with_spi_sdcard:
+        soc.add_spi_sdcard()
     if args.with_sdcard:
+        if args.with_spi_sdcard:
+            raise ValueError("'--with-spi-sdcard' and '--with-sdcard' are mutually exclusive!")
         soc.add_sdcard()
     builder = Builder(soc, **builder_argdict(args))
     builder.build()

@@ -122,6 +122,7 @@ int serialboot(void)
 	printf("Booting from serial...\n");
 	printf("Press Q or ESC to abort boot completely.\n");
 
+	/* send the serialboot "magic" request to Host */
 	c = str;
 	while(*c) {
 		uart_write(*c);
@@ -145,18 +146,20 @@ int serialboot(void)
 		int goodcrc;
 
 		/* Get one Frame */
-		frame.length = uart_read();
+		frame.payload_length = uart_read();
 		frame.crc[0] = uart_read();
 		frame.crc[1] = uart_read();
 		frame.cmd = uart_read();
-		for(i=0;i<frame.length;i++)
+		for(i=0;i<frame.payload_length;i++)
 			frame.payload[i] = uart_read();
 
 		/* Check Frame CRC (if CMD has a CRC) */
 		if (frame.cmd != SFL_CMD_LOAD_NO_CRC) {
 			actualcrc = ((int)frame.crc[0] << 8)|(int)frame.crc[1];
-			goodcrc = crc16(&frame.cmd, frame.length+1);
+			goodcrc = crc16(&frame.cmd, frame.payload_length+1);
 			if(actualcrc != goodcrc) {
+				/* Clear out the RX buffer */
+				while (uart_read_nonblock()) uart_read();
 				failed++;
 				if(failed == MAX_FAILED) {
 					printf("Too many consecutive errors, aborting");
@@ -179,7 +182,7 @@ int serialboot(void)
 
 				failed = 0;
 				writepointer = (char *) get_uint32(&frame.payload[0]);
-				for(i=4;i<frame.length;i++)
+				for(i=4;i<frame.payload_length;i++)
 					*(writepointer++) = frame.payload[i];
 				if (frame.cmd == SFL_CMD_LOAD)
 					uart_write(SFL_ACK_SUCCESS);
@@ -201,7 +204,7 @@ int serialboot(void)
 				failed = 0;
 				addr = get_uint32(&frame.payload[0]);
 
-				for (i = 4; i < frame.length; i++) {
+				for (i = 4; i < frame.payload_length; i++) {
 					// erase page at sector boundaries before writing
 					if ((addr & (SPIFLASH_SECTOR_SIZE - 1)) == 0) {
 						erase_flash_sector(addr);
@@ -234,14 +237,18 @@ int serialboot(void)
 
 #if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
 
-#define KERNEL_IMAGE_RAM_OFFSET      0x00000000
-#define ROOTFS_IMAGE_RAM_OFFSET      0x00800000
-#define DEVICE_TREE_IMAGE_RAM_OFFSET 0x01000000
-
-#ifndef EMULATOR_RAM_BASE
-#define EMULATOR_RAM_BASE 0x20000000
+#ifndef KERNEL_IMAGE_RAM_OFFSET
+#define KERNEL_IMAGE_RAM_OFFSET 0x00000000
 #endif
-#define EMULATOR_IMAGE_RAM_OFFSET    0x00000000
+#ifndef ROOTFS_IMAGE_RAM_OFFSET
+#define ROOTFS_IMAGE_RAM_OFFSET 0x00800000
+#endif
+#ifndef DEVICE_TREE_IMAGE_RAM_OFFSET
+#define DEVICE_TREE_IMAGE_RAM_OFFSET 0x01000000
+#endif
+#ifndef EMULATOR_IMAGE_RAM_OFFSET
+#define EMULATOR_IMAGE_RAM_OFFSET 0x01100000
+#endif
 
 #endif
 
@@ -309,7 +316,7 @@ static int try_get_kernel_rootfs_dtb_emulator(unsigned int ip, unsigned short tf
 		return 0;
 	}
 
-	tftp_dst_addr = EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET;
+	tftp_dst_addr =  MAIN_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET;
 	size = tftp_get_v(ip, tftp_port, "emulator.bin", (void *)tftp_dst_addr);
 	if(size <= 0) {
 		printf("No emulator.bin found\n");
@@ -341,7 +348,7 @@ void netboot(void)
 #if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
 	if(try_get_kernel_rootfs_dtb_emulator(ip, tftp_port))
 	{
-		boot(0, 0, 0, EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
+		boot(0, 0, 0, MAIN_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
 		return;
 	}
 	printf("Unable to download Linux images, falling back to boot.bin\n");
@@ -453,11 +460,11 @@ void flashboot(void)
 		printf("Loading emulator.bin from flash...\n");
 		result &= copy_image_from_flash_to_ram(
 			(FLASH_BOOT_ADDRESS + EMULATOR_IMAGE_FLASH_OFFSET),
-			(EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET));
+			(MAIN_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET));
 	}
 
 	if(result) {
-		boot(0, 0, 0, EMULATOR_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
+		boot(0, 0, 0, MAIN_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
 		return;
 	}
 #endif
@@ -485,5 +492,39 @@ void flashboot(void)
 void romboot(void)
 {
 	boot(0, 0, 0, ROM_BOOT_ADDRESS);
+}
+#endif
+
+// SPI HARDWARE BITBANG
+#ifdef CSR_SPISDCARD_BASE
+#include <spisdcard.h>
+
+void spisdcardboot(void)
+{
+	printf("SD Card via SPI Initialising\n");
+	if(spi_sdcard_goidle() == 0) {
+		printf("SD Card Timeout\n");
+		return;
+	}
+
+	if(spi_sdcard_readMBR() == 0) {
+		printf("SD Card MBR Timeout\n");
+		return;
+	}
+
+#if defined(CONFIG_CPU_TYPE_VEXRISCV) && defined(CONFIG_CPU_VARIANT_LINUX)
+	if(spi_sdcard_readFile("IMAGE","",MAIN_RAM_BASE+KERNEL_IMAGE_RAM_OFFSET)==0) return;
+	if(spi_sdcard_readFile("ROOTFS~1","CPI",MAIN_RAM_BASE+ROOTFS_IMAGE_RAM_OFFSET)==0) return;
+	if(spi_sdcard_readFile("RV32","DTB",MAIN_RAM_BASE+DEVICE_TREE_IMAGE_RAM_OFFSET)==0) return;
+	if(spi_sdcard_readFile("EMULATOR","BIN",MAIN_RAM_BASE+EMULATOR_IMAGE_RAM_OFFSET)==0) return;
+
+	boot(0,0,0,MAIN_RAM_BASE + EMULATOR_IMAGE_RAM_OFFSET);
+#else
+	if(spi_sdcard_readFile("BOOT","BIN",MAIN_RAM_BASE)==0) {
+		printf("SD Card SPI boot failed\n");
+		return;
+	}
+	boot(0, 0, 0, MAIN_RAM_BASE);
+#endif
 }
 #endif

@@ -395,6 +395,9 @@ static void help(void)
 	puts("sdram_mpr                       - read SDRAM MPR");
 	puts("sdram_mrwr reg value            - write SDRAM mode registers");
 #endif
+#ifdef CSR_SPISDCARD_BASE
+        puts("spisdcardboot   - boot from SDCard via SPI hardware bitbang");
+#endif
 }
 
 static char *get_token(char **str)
@@ -472,7 +475,7 @@ static void do_command(char *c)
 	else if(strcmp(token, "sdrwr") == 0) sdrwr(get_token(&c));
 #ifdef CSR_DDRPHY_BASE
 	else if(strcmp(token, "sdrinit") == 0) sdrinit();
-#ifdef CSR_DDRPHY_WLEVEL_EN_ADDR
+#ifdef SDRAM_PHY_WRITE_LEVELING_CAPABLE
 	else if(strcmp(token, "sdrwlon") == 0) sdrwlon();
 	else if(strcmp(token, "sdrwloff") == 0) sdrwloff();
 #endif
@@ -504,6 +507,10 @@ static void do_command(char *c)
 		sdrhw();
 	}
 #endif
+#ifdef CSR_SPISDCARD_BASE
+        else if(strcmp(token, "spisdcardboot") == 0) spisdcardboot();
+#endif
+
 	else if(strcmp(token, "") != 0)
 		printf("Command not found\n");
 }
@@ -585,6 +592,9 @@ static void boot_sequence(void)
 #endif
 #ifdef ROM_BOOT_ADDRESS
 		romboot();
+#endif
+#ifdef CSR_SPISDCARD_BASE
+		spisdcardboot();
 #endif
 #ifdef CSR_ETHMAC_BASE
 #ifdef CSR_ETHPHY_MODE_DETECTION_MODE_ADDR

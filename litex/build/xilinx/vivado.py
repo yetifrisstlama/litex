@@ -271,25 +271,24 @@ class XilinxVivadoToolchain:
         platform.add_platform_command(_xdc_separator("False path constraints"))
         # The asynchronous input to a MultiReg is a false path
         platform.add_platform_command(
-            'set_false_path '
-            '-to [get_pins -filter {{REF_PIN_NAME == D}} '
-            '-of [get_cells -filter {{mr_ff == TRUE}}]]'
-            # "-to [get_nets -quiet -filter {{mr_ff == TRUE}}]"
+            "set_false_path -quiet "
+            "-through [get_nets -hierarchical -filter {{mr_ff == TRUE}}]"
         )
         # The asychronous reset input to the AsyncResetSynchronizer is a false path
         platform.add_platform_command(
-            "set_false_path "
-            "-to [get_pins -quiet -filter {{REF_PIN_NAME == PRE}} "
-                "-of [get_cells -quiet -filter {{ars_ff1 == TRUE || ars_ff2 == TRUE}}]]"
+            "set_false_path -quiet "
+            "-to [get_pins -filter {{REF_PIN_NAME == PRE}} "
+                "-of_objects [get_cells -hierarchical -filter {{ars_ff1 == TRUE || ars_ff2 == TRUE}}]]"
         )
         # clock_period-2ns to resolve metastability on the wire between the AsyncResetSynchronizer FFs
         platform.add_platform_command(
-            "set_max_delay 2 "
-            "-from [get_pins -quiet -filter {{REF_PIN_NAME == C}} "
-                "-of [get_cells -quiet -filter {{ars_ff1 == TRUE}}]] "
-            "-to [get_pins -quiet -filter {{REF_PIN_NAME == D}} "
-                "-of [get_cells -quiet -filter {{ars_ff2 == TRUE}}]]"
+            "set_max_delay 2 -quiet "
+            "-from [get_pins -filter {{REF_PIN_NAME == C}} "
+                "-of_objects [get_cells -hierarchical -filter {{ars_ff1 == TRUE}}]] "
+            "-to [get_pins -filter {{REF_PIN_NAME == D}} "
+                "-of_objects [get_cells -hierarchical -filter {{ars_ff2 == TRUE}}]]"
         )
+
 
     def build(self, platform, fragment,
         build_dir  = "build",

@@ -6,13 +6,15 @@
 import logging
 import time
 import datetime
-from math import log2
+from math import log2, ceil
 
 from migen import *
 
 from litex.soc.cores import cpu
 from litex.soc.cores.identifier import Identifier
 from litex.soc.cores.timer import Timer
+from litex.soc.cores.spi_flash import SpiFlash
+from litex.soc.cores.spi import SPIMaster
 
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect import csr_bus
@@ -910,33 +912,66 @@ class LiteXSoC(SoC):
     # Add UART -------------------------------------------------------------------------------------
     def add_uart(self, name, baudrate=115200, fifo_depth=16):
         from litex.soc.cores import uart
+
+        # Stub / Stream
         if name in ["stub", "stream"]:
             self.submodules.uart = uart.UART(tx_fifo_depth=0, rx_fifo_depth=0)
             if name == "stub":
                 self.comb += self.uart.sink.ready.eq(1)
-        elif name == "bridge":
+
+        # Bridge
+        elif name in ["bridge"]:
             self.submodules.uart = uart.UARTWishboneBridge(
                 pads     = self.platform.request("serial"),
                 clk_freq = self.sys_clk_freq,
                 baudrate = baudrate)
             self.bus.add_master(name="uart_bridge", master=self.uart.wishbone)
-        elif name == "crossover":
+
+        # Crossover
+        elif name in ["crossover"]:
             self.submodules.uart = uart.UARTCrossover()
-        else:
-            if name == "jtag_atlantic":
-                from litex.soc.cores.jtag import JTAGAtlantic
-                self.submodules.uart_phy = JTAGAtlantic()
-            elif name == "jtag_uart":
-                from litex.soc.cores.jtag import JTAGPHY
-                self.submodules.uart_phy = JTAGPHY(device=self.platform.device)
-            else:
-                self.submodules.uart_phy = uart.UARTPHY(
-                    pads     = self.platform.request(name),
-                    clk_freq = self.sys_clk_freq,
-                    baudrate = baudrate)
+
+        # Model/Sim
+        elif name in ["model", "sim"]:
+            self.submodules.uart_phy = uart.RS232PHYModel(self.platform.request("serial"))
             self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy,
                 tx_fifo_depth = fifo_depth,
                 rx_fifo_depth = fifo_depth))
+
+        # JTAG Atlantic
+        elif name in ["jtag_atlantic"]:
+            from litex.soc.cores.jtag import JTAGAtlantic
+            self.submodules.uart_phy = JTAGAtlantic()
+            self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy,
+                tx_fifo_depth = fifo_depth,
+                rx_fifo_depth = fifo_depth))
+
+        # JTAG UART
+        elif name in ["jtag_uart"]:
+            from litex.soc.cores.jtag import JTAGPHY
+            self.submodules.uart_phy = JTAGPHY(device=self.platform.device)
+            self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy,
+                tx_fifo_depth = fifo_depth,
+                rx_fifo_depth = fifo_depth))
+
+        # USB CDC (with ValentyUSB core)
+        elif name in ["usb_cdc"]:
+            import valentyusb.usbcore.io as usbio
+            import valentyusb.usbcore.cpu.cdc_eptri as cdc_eptri
+            usb_pads = self.platform.request("usb")
+            usb_iobuf = usbio.IoBuf(usb_pads.d_p, usb_pads.d_n, usb_pads.pullup)
+            self.submodules.uart = cdc_eptri.CDCUsb(usb_iobuf)
+
+        # Classic UART
+        else:
+            self.submodules.uart_phy = uart.UARTPHY(
+                pads     = self.platform.request(name),
+                clk_freq = self.sys_clk_freq,
+                baudrate = baudrate)
+            self.submodules.uart = ResetInserter()(uart.UART(self.uart_phy,
+                tx_fifo_depth = fifo_depth,
+                rx_fifo_depth = fifo_depth))
+
         self.csr.add("uart_phy", use_loc_if_exists=True)
         self.csr.add("uart", use_loc_if_exists=True)
         self.irq.add("uart", use_loc_if_exists=True)
@@ -1035,23 +1070,90 @@ class LiteXSoC(SoC):
                 base_address = self.bus.regions["main_ram"].origin)
 
     # Add Ethernet ---------------------------------------------------------------------------------
-    def add_ethernet(self, phy):
+    def add_ethernet(self, name="ethmac", phy=None):
         # Imports
         from liteeth.mac import LiteEthMAC
         # MAC
-        self.submodules.ethmac = LiteEthMAC(
+        ethmac = LiteEthMAC(
             phy        = phy,
             dw         = 32,
             interface  = "wishbone",
             endianness = self.cpu.endianness)
-        ethmac_region = SoCRegion(size=0x2000, cached=False)
-        self.bus.add_slave(name="ethmac", slave=self.ethmac.bus, region=ethmac_region)
-        self.add_csr("ethmac")
-        self.add_interrupt("ethmac")
+        setattr(self.submodules, name, ethmac)
+        ethmac_region = SoCRegion(origin=self.mem_map.get(name, None), size=0x2000, cached=False)
+        self.bus.add_slave(name=name, slave=ethmac.bus, region=ethmac_region)
+        self.add_csr(name)
+        self.add_interrupt(name)
         # Timing constraints
-        self.platform.add_period_constraint(phy.crg.cd_eth_rx.clk, 1e9/phy.rx_clk_freq)
-        self.platform.add_period_constraint(phy.crg.cd_eth_tx.clk, 1e9/phy.tx_clk_freq)
+        if hasattr(phy, "crg"):
+            eth_rx_clk = phy.crg.cd_eth_rx.clk
+            eth_tx_clk = phy.crg.cd_eth_tx.clk
+        else:
+            eth_rx_clk = phy.cd_eth_rx.clk
+            eth_tx_clk = phy.cd_eth_tx.clk
+        self.platform.add_period_constraint(eth_rx_clk, 1e9/phy.rx_clk_freq)
+        self.platform.add_period_constraint(eth_tx_clk, 1e9/phy.tx_clk_freq)
         self.platform.add_false_path_constraints(
             self.crg.cd_sys.clk,
-            phy.crg.cd_eth_rx.clk,
-            phy.crg.cd_eth_tx.clk)
+            eth_rx_clk,
+            eth_tx_clk)
+
+    # Add Etherbone --------------------------------------------------------------------------------
+    def add_etherbone(self, name="etherbone", phy=None,
+        mac_address = 0x10e2d5000000,
+        ip_address  = "192.168.1.50",
+        udp_port    = 1234):
+        # Imports
+        from liteeth.core import LiteEthUDPIPCore
+        from liteeth.frontend.etherbone import LiteEthEtherbone
+        # Core
+        ethcore = LiteEthUDPIPCore(
+            phy         = self.ethphy,
+            mac_address = mac_address,
+            ip_address  = ip_address,
+            clk_freq    = self.clk_freq)
+        self.submodules += ethcore
+        # Etherbone
+        etherbone = LiteEthEtherbone(ethcore.udp, udp_port)
+        setattr(self.submodules, name, etherbone)
+        self.add_wb_master(etherbone.wishbone.bus)
+        # Timing constraints
+        if hasattr(phy, "crg"):
+            eth_rx_clk = phy.crg.cd_eth_rx.clk
+            eth_tx_clk = phy.crg.cd_eth_tx.clk
+        else:
+            eth_rx_clk = phy.cd_eth_rx.clk
+            eth_tx_clk = phy.cd_eth_tx.clk
+        self.platform.add_period_constraint(eth_rx_clk, 1e9/phy.rx_clk_freq)
+        self.platform.add_period_constraint(eth_tx_clk, 1e9/phy.tx_clk_freq)
+        self.platform.add_false_path_constraints(
+            self.crg.cd_sys.clk,
+            eth_rx_clk,
+            eth_tx_clk)
+
+    # Add SPI Flash --------------------------------------------------------------------------------
+    def add_spi_flash(self, name="spiflash", mode="4x", dummy_cycles=None, clk_freq=None):
+        assert dummy_cycles is not None                 # FIXME: Get dummy_cycles from SPI Flash
+        assert mode in ["4x"]                           # FIXME: Add 1x support.
+        if clk_freq is None: clk_freq = self.clk_freq/2 # FIXME: Get max clk_freq from SPI Flash
+        spiflash = SpiFlash(
+            pads         = self.platform.request(name + mode),
+            dummy        = dummy_cycles,
+            div          = ceil(self.clk_freq/clk_freq),
+            with_bitbang = True,
+            endianness   = self.cpu.endianness)
+        spiflash.add_clk_primitive(self.platform.device)
+        setattr(self.submodules, name, spiflash)
+        self.add_memory_region(name, self.mem_map[name], 0x1000000) # FIXME: Get size from SPI Flash
+        self.add_wb_slave(self.mem_map[name], spiflash.bus)
+        self.add_csr(name)
+
+    # Add SPI SDCard -------------------------------------------------------------------------------
+    def add_spi_sdcard(self, name="spisdcard", clk_freq=400e3):
+        pads = self.platform.request(name)
+        if hasattr(pads, "rst"):
+            self.comb += pads.rst.eq(0)
+        spisdcard = SPIMaster(pads, 8, self.sys_clk_freq, 400e3)
+        spisdcard.add_clk_divider()
+        setattr(self.submodules, name, spisdcard)
+        self.add_csr(name)
