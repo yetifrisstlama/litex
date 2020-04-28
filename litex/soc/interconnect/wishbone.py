@@ -675,7 +675,7 @@ class Cache(Module):
 
 
 class SRAM(Module):
-    def __init__(self, mem_or_size, read_only=None, init=None, bus=None):
+    def __init__(self, mem_or_size, read_only=None, init=None, bus=None, we_gran=8):
         if bus is None:
             bus = Interface()
         self.bus = bus
@@ -694,7 +694,7 @@ class SRAM(Module):
         ###
 
         # memory
-        port = self.mem.get_port(write_capable=not read_only, we_granularity=8,
+        port = self.mem.get_port(write_capable=not read_only, we_granularity=we_gran,
             mode=READ_FIRST if read_only else WRITE_FIRST)
         self.specials += self.mem, port
         # generate write enable signal
