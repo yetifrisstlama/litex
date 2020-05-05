@@ -23,6 +23,8 @@ repos = [
 
     # LiteX SoC builder
     ("litex",      (LITEX_ROOT_URL, True,  True)),
+    ("nmigen",       ("https://github.com/nmigen/",        True,  True)),
+    ("pythondata-software-compiler_rt", ("https://github.com/litex-hub/",     False, True)),
 
     # LiteX cores ecosystem
     ("liteeth",    (LITEOTHER_ROOT_URL, False, True)),
@@ -38,7 +40,19 @@ repos = [
 
     # LiteX boards support
     ("litex-boards", ("https://github.com/litex-hub/",     False, True)),
+
+    # Optional LiteX data
+    ("pythondata-misc-tapcfg",     ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-lm32",        ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-mor1kx",      ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-picorv32",    ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-serv",        ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-vexriscv",    ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-rocket",      ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-minerva",     ("https://github.com/litex-hub/", False, True)),
+    ("pythondata-cpu-microwatt",   ("https://github.com/litex-hub/", False, True)),
 ]
+
 repos = OrderedDict(repos)
 
 # RISC-V toolchain download ------------------------------------------------------------------------
@@ -133,7 +147,7 @@ if "update" in sys.argv[1:]:
         print("[updating " + name + "]...")
         os.chdir(os.path.join(current_path, name))
         subprocess.check_call(
-            "git pull",
+            "git pull --ff-only",
             shell=True)
         os.chdir(os.path.join(current_path))
 
