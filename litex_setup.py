@@ -102,6 +102,8 @@ if "init" in sys.argv[1:]:
 # Repositories installation
 if "install" in sys.argv[1:]:
     for name in repos.keys():
+        if name == "litex":
+            continue
         url, need_recursive, need_develop = repos[name]
         # develop if needed
         print("[installing " + name + "]...")
