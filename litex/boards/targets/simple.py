@@ -4,6 +4,7 @@
 # This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
 # License: BSD
 
+import os
 import argparse
 import importlib
 
@@ -23,7 +24,10 @@ class BaseSoC(SoCCore):
         sys_clk_freq = int(1e9/platform.default_clk_period)
 
         # SoCCore ----------------------------------------------------------------------------------
-        SoCCore.__init__(self, platform, clk_freq=sys_clk_freq, **kwargs)
+        SoCCore.__init__(self, platform, sys_clk_freq,
+            ident          = "LiteX Simple SoC",
+            ident_version  = True,
+            **kwargs)
 
         # CRG --------------------------------------------------------------------------------------
         self.submodules.crg = CRG(platform.request(platform.default_clk_name))
@@ -41,25 +45,22 @@ class BaseSoC(SoCCore):
 
 def main():
     parser = argparse.ArgumentParser(description="Generic LiteX SoC")
+    parser.add_argument("--build", action="store_true", help="Build bitstream")
     builder_args(parser)
     soc_core_args(parser)
-    parser.add_argument("--with-ethernet", action="store_true",
-                        help="enable Ethernet support")
-    parser.add_argument("platform",
-                        help="module name of the platform to build for")
-    parser.add_argument("--gateware-toolchain", default=None,
-                        help="FPGA gateware toolchain used for build")
+    parser.add_argument("--with-ethernet", action="store_true", help="Enable Ethernet support")
+    parser.add_argument("platform",                             help="Module name of the platform to build for")
+    parser.add_argument("--toolchain", default=None,   help="FPGA gateware toolchain used for build")
     args = parser.parse_args()
 
-    platform_module = importlib.import_module('litex.boards.platforms.{}'.format(args.platform))
-
-    if args.gateware_toolchain is not None:
-        platform = platform_module.Platform(toolchain=args.gateware_toolchain)
+    platform_module = importlib.import_module(args.platform)
+    if args.toolchain is not None:
+        platform = platform_module.Platform(toolchain=args.toolchain)
     else:
         platform = platform_module.Platform()
     soc = BaseSoC(platform, with_ethernet=args.with_ethernet, **soc_core_argdict(args))
     builder = Builder(soc, **builder_argdict(args))
-    builder.build()
+    builder.build(run=args.build)
 
 
 if __name__ == "__main__":

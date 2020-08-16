@@ -3,6 +3,7 @@
 
 from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
+from litex.build.lattice.programmer import UJProg
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -29,6 +30,14 @@ _io = [
         Subsignal("mosi", Pins("J3"), Misc("PULLMODE=UP")),
         Subsignal("cs_n", Pins("H1"), Misc("PULLMODE=UP")),
         Subsignal("miso", Pins("K2"), Misc("PULLMODE=UP")),
+        Misc("SLEWRATE=FAST"),
+        IOStandard("LVCMOS33"),
+    ),
+
+    ("sdcard", 0,
+        Subsignal("clk",  Pins("J1")),
+        Subsignal("cmd",  Pins("J3"), Misc("PULLMODE=UP")),
+        Subsignal("data", Pins("K2 K1 H2 H1"), Misc("PULLMODE=UP")),
         Misc("SLEWRATE=FAST"),
         IOStandard("LVCMOS33"),
     ),
@@ -84,6 +93,13 @@ _io = [
         Subsignal("n", Pins("C10")),
         IOStandard("LVCMOS33")
     ),
+
+    ("usb", 0,
+        Subsignal("d_p", Pins("D15")),
+        Subsignal("d_n", Pins("E15")),
+        Subsignal("pullup", Pins("B12 C12")),
+        IOStandard("LVCMOS33")
+    ),
 ]
 
 # Platform -----------------------------------------------------------------------------------------
@@ -93,4 +109,12 @@ class Platform(LatticePlatform):
     default_clk_period = 1e9/25e6
 
     def __init__(self, device="LFE5U-45F", **kwargs):
+        assert device in ["LFE5U-25F", "LFE5U-45F", "LFE5U-85F"]
         LatticePlatform.__init__(self, device + "-6BG381C", _io, **kwargs)
+
+    def create_programmer(self):
+        return UJProg()
+
+    def do_finalize(self, fragment):
+        LatticePlatform.do_finalize(self, fragment)
+        self.add_period_constraint(self.lookup_request("clk25", loose=True), 1e9/25e6)

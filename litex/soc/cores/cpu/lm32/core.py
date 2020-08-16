@@ -19,6 +19,7 @@ CPU_VARIANTS = ["minimal", "lite", "standard"]
 class LM32(CPU):
     name                 = "lm32"
     human_name           = "LM32"
+    variants             = CPU_VARIANTS
     data_width           = 32
     endianness           = "big"
     gcc_triple           = "lm32-elf"
@@ -36,7 +37,6 @@ class LM32(CPU):
         return flags
 
     def __init__(self, platform, variant="standard"):
-        assert variant in CPU_VARIANTS, "Unsupported variant %s" % variant
         self.platform     = platform
         self.variant      = variant
         self.reset        = Signal()
@@ -121,12 +121,13 @@ class LM32(CPU):
             "lm32_itlb.v",
             "lm32_dtlb.v")
         platform.add_verilog_include_path(os.path.join(vdir, "rtl"))
+        cdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "verilog")
         if variant == "minimal":
-            platform.add_verilog_include_path(os.path.join(vdir, "config_minimal"))
+            platform.add_verilog_include_path(os.path.join(cdir, "config_minimal"))
         elif variant == "lite":
-            platform.add_verilog_include_path(os.path.join(vdir, "config_lite"))
+            platform.add_verilog_include_path(os.path.join(cdir, "config_lite"))
         elif variant == "standard":
-            platform.add_verilog_include_path(os.path.join(vdir, "config"))
+            platform.add_verilog_include_path(os.path.join(cdir, "config"))
         else:
             raise TypeError("Unknown variant {}".format(variant))
 

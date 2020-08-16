@@ -17,6 +17,7 @@ CPU_VARIANTS = ["standard"]
 class SERV(CPU):
     name                 = "serv"
     human_name           = "SERV"
+    variants             = CPU_VARIANTS
     data_width           = 32
     endianness           = "little"
     gcc_triple           = CPU_GCC_TRIPLE_RISCV32
@@ -32,7 +33,6 @@ class SERV(CPU):
         return flags
 
     def __init__(self, platform, variant="standard"):
-        assert variant in CPU_VARIANTS, "Unsupported variant %s" % variant
         self.platform     = platform
         self.variant      = variant
         self.reset        = Signal()

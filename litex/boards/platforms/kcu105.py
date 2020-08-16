@@ -79,6 +79,23 @@ _io = [
         IOStandard("LVCMOS18")
     ),
 
+    ("sdcard", 0,
+        Subsignal("clk", Pins("AL10")),
+        Subsignal("cmd", Pins("AD9"), Misc("PULLUP True")),
+        Subsignal("data", Pins("AP9 AN9 AH9 AH8"), Misc("PULLUP True")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS18")
+    ),
+
+    ("spisdcard", 0,
+        Subsignal("clk",  Pins("AL10")),
+        Subsignal("cs_n", Pins("AH8")),
+        Subsignal("mosi", Pins("AD9"), Misc("PULLUP")),
+        Subsignal("miso", Pins("AP9"), Misc("PULLUP")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS18")
+    ),
+
     ("rotary", 0,
         Subsignal("a",    Pins("Y21")),
         Subsignal("b",    Pins("AD26")),
@@ -498,6 +515,8 @@ class Platform(XilinxPlatform):
 
     def do_finalize(self, fragment):
         XilinxPlatform.do_finalize(self, fragment)
+        self.add_period_constraint(self.lookup_request("clk125", loose=True), 1e9/125e6)
+        self.add_period_constraint(self.lookup_request("clk300", loose=True), 1e9/300e6)
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 44]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 45]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 46]")

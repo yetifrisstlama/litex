@@ -15,6 +15,27 @@ import threading
 from litex.tools.remote.etherbone import EtherbonePacket, EtherboneRecord, EtherboneWrites
 from litex.tools.remote.etherbone import EtherboneIPC
 
+def _read_merger(addrs, max_length=256):
+    """Sequential reads merger
+
+    Take a list of read addresses as input and merge the sequential reads in (base, length) tuples:
+    Example: [0x0, 0x4, 0x10, 0x14] input  will return [(0x0,2), (0x10,2)].
+
+    This is useful for UARTBone/Etherbone where command/response roundtrip delay is responsible for
+    most of the access delay and allows minimizing number of commands by grouping them in UARTBone
+    packets.
+    """
+    base   = None
+    length = 0
+    for addr in addrs:
+        if (addr - (4*length) != base) or (length == max_length):
+            if base is not None:
+                yield (base, length)
+            base  = addr
+            length = 0
+        length += 1
+    yield (base, length)
+
 
 class RemoteServer(EtherboneIPC):
     def __init__(self, comm, bind_ip, bind_port=1234):
@@ -26,13 +47,11 @@ class RemoteServer(EtherboneIPC):
     def open(self):
         if hasattr(self, "socket"):
             return
-        socket_flags = 0
-        if hasattr(socket, "SO_REUSEADDR"):
-            socket_flags = socket_flags | socket.SO_REUSEADDR
-        if hasattr(socket, "SO_REUSEPORT"):
-            socket_flags = socket_flags | socket.SO_REUSEPORT
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket_flags, 1)
+        if hasattr(socket, "SO_REUSEADDR"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         self.socket.bind((self.bind_ip, self.bind_port))
         print("tcp port: {:d}".format(self.bind_port))
         self.socket.listen(1)
@@ -75,9 +94,13 @@ class RemoteServer(EtherboneIPC):
 
                     # handle reads
                     if record.reads != None:
+                        max_length = {
+                            "CommUART": 256,
+                            "CommUDP":    4,
+                        }.get(self.comm.__class__.__name__, 1)
                         reads = []
-                        for addr in record.reads.get_addrs():
-                            reads.append(self.comm.read(addr))
+                        for addr, length in _read_merger(record.reads.get_addrs(), max_length=max_length):
+                            reads += self.comm.read(addr, length)
 
                         record = EtherboneRecord()
                         record.writes = EtherboneWrites(datas=reads)

@@ -2,7 +2,8 @@
 # License: BSD
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform, VivadoProgrammer
+from litex.build.xilinx import XilinxPlatform
+from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -123,10 +124,19 @@ _io = [
 
      # sdcard
      ("sdcard", 0,
-        Subsignal("data", Pins("L15 L16 K14 M13"), Misc("PULLUP True")),
-        Subsignal("cmd",  Pins("L13"), Misc("PULLUP True")),
         Subsignal("clk",  Pins("K18")),
+        Subsignal("cmd",  Pins("L13"), Misc("PULLUP True")),
+        Subsignal("data", Pins("L15 L16 K14 M13"), Misc("PULLUP True")),
         IOStandard("LVCMOS33"), Misc("SLEW=FAST")
+    ),
+
+    ("spisdcard", 0,
+        Subsignal("clk",  Pins("K18")),
+        Subsignal("cs_n", Pins("M13")),
+        Subsignal("mosi", Pins("L13"), Misc("PULLUP")),
+        Subsignal("miso", Pins("L15"), Misc("PULLUP")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS33")
     ),
 
     # hdmi in
@@ -191,3 +201,12 @@ class Platform(XilinxPlatform):
     def __init__(self, device="xc7a35t"):
         assert device in ["xc7a35t", "xc7a100t"]
         XilinxPlatform.__init__(self, device + "-fgg484-2", _io, toolchain="vivado")
+
+    def create_programmer(self):
+        bscan_spi = "bscan_spi_xc7a100t.bit" if "xc7a100t" in self.device else "bscan_spi_xc7a35t.bit"
+        return OpenOCD("openocd_netv2_rpi.cfg", bscan_spi)
+
+    def do_finalize(self, fragment):
+        XilinxPlatform.do_finalize(self, fragment)
+        self.add_period_constraint(self.lookup_request("clk50",              loose=True), 1e9/50e6)
+        self.add_period_constraint(self.lookup_request("eth_clocks:ref_clk", loose=True), 1e9/50e6)

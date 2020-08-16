@@ -3,7 +3,8 @@
 # This file is Copyright (c) 2015 Yann Sionneau <ys@m-labs.hk>
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform, VivadoProgrammer
+from litex.build.xilinx import XilinxPlatform
+from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -71,20 +72,22 @@ _io = [
         IOStandard("LVCMOS25")
     ),
 
-    ("mmc", 0,
-        Subsignal("wp",  Pins("Y21")),
-        Subsignal("det", Pins("AA21")),
-        Subsignal("cmd", Pins("AB22")),
+    ("sdcard", 0,
         Subsignal("clk", Pins("AB23")),
-        Subsignal("dat", Pins("AC20 AA23 AA22 AC21")),
-        IOStandard("LVCMOS25")),
+        Subsignal("cmd", Pins("AB22"), Misc("PULLUP True")),
+        Subsignal("data", Pins("AC20 AA23 AA22 AC21"), Misc("PULLUP True")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS25")
+    ),
 
-    ("mmc_spi", 0,
-        Subsignal("miso", Pins("AC20"), Misc("PULLUP")),
+    ("spisdcard", 0,
         Subsignal("clk",  Pins("AB23")),
-        Subsignal("mosi", Pins("AB22")),
         Subsignal("cs_n", Pins("AC21")),
-        IOStandard("LVCMOS25")),
+        Subsignal("mosi", Pins("AB22"), Misc("PULLUP")),
+        Subsignal("miso", Pins("AC20"), Misc("PULLUP")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS25")
+    ),
 
     ("lcd", 0,
         Subsignal("db", Pins("AA13 AA10 AA11 Y10")),
@@ -445,6 +448,10 @@ _connectors = [
     ("LPC", {
         "GBTCLK0_M2C_P" : "N8",
         "GBTCLK0_M2C_N" : "N7",
+        "DP0_C2M_P"     : "F2",
+        "DP0_C2M_N"     : "F1",
+        "DP0_M2C_P"     : "F6",
+        "DP0_M2C_N"     : "F5",
         "LA01_CC_P"     : "AE23",
         "LA01_CC_N"     : "AF23",
         "LA05_P"        : "AG22",
@@ -548,20 +555,11 @@ set_property CONFIG_VOLTAGE 2.5 [current_design]
         self.toolchain.additional_commands = ["write_cfgmem -force -format bin -interface spix4 -size 16 -loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
 
     def create_programmer(self):
-        return VivadoProgrammer()
+        return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7a325t.bit")
 
     def do_finalize(self, fragment):
         XilinxPlatform.do_finalize(self, fragment)
-        try:
-            self.add_period_constraint(self.lookup_request("clk200").p, 1e9/200e6)
-        except ConstraintError:
-            pass
-        try:
-            self.add_period_constraint(self.lookup_request("eth_clocks").rx, 1e9/125e6)
-        except ConstraintError:
-            pass
-        try:
-            self.add_period_constraint(self.lookup_request("eth_clocks").tx, 1e9/125e6)
-        except ConstraintError:
-            pass
+        self.add_period_constraint(self.lookup_request("clk200",        loose=True), 1e9/200e6)
+        self.add_period_constraint(self.lookup_request("eth_clocks:rx", loose=True), 1e9/125e6)
+        self.add_period_constraint(self.lookup_request("eth_clocks:tx", loose=True), 1e9/125e6)
         self.add_platform_command("set_property DCI_CASCADE {{32 34}} [get_iobanks 33]")

@@ -17,15 +17,24 @@ import shutil
 from litex import get_data_mod
 from litex.build.tools import write_to_file
 from litex.soc.integration import export, soc_core
+from litex.soc.cores import cpu
 
-__all__ = ["soc_software_packages", "soc_directory",
-           "Builder", "builder_args", "builder_argdict"]
+__all__ = [
+    "soc_software_packages",
+    "soc_directory",
+    "Builder",
+    "builder_args",
+    "builder_argdict"
+]
 
 
 soc_software_packages = [
     "libcompiler_rt",
     "libbase",
-    "libnet",
+    "liblitedram",
+    "libliteeth",
+    "liblitespi",
+    "liblitesdcard",
     "bios"
 ]
 
@@ -53,9 +62,8 @@ class Builder:
         bios_options     = None):
         self.soc = soc
 
-        # From Python doc: makedirs() will become confused if the path
-        # elements to create include '..'
-        self.output_dir    = os.path.abspath(output_dir    or "soc_{}_{}".format(soc.__class__.__name__.lower(), soc.platform.name))
+        # From Python doc: makedirs() will become confused if the path elements to create include '..'
+        self.output_dir    = os.path.abspath(output_dir    or os.path.join("build", soc.platform.name))
         self.gateware_dir  = os.path.abspath(gateware_dir  or os.path.join(self.output_dir,   "gateware"))
         self.software_dir  = os.path.abspath(software_dir  or os.path.join(self.output_dir,   "software"))
         self.include_dir   = os.path.abspath(include_dir   or os.path.join(self.software_dir, "include"))
@@ -82,26 +90,12 @@ class Builder:
         os.makedirs(self.include_dir, exist_ok=True)
         os.makedirs(self.generated_dir, exist_ok=True)
 
-        if self.soc.cpu_type is not None:
+        if self.soc.cpu_type not in [None, "zynq7000"]:
             variables_contents = []
             def define(k, v):
                 variables_contents.append("{}={}\n".format(k, _makefile_escape(v)))
 
             for k, v in export.get_cpu_mak(self.soc.cpu, self.compile_software):
-                define(k, v)
-            # Distinguish between LiteX and MiSoC.
-            define("LITEX", "1")
-            # Distinguish between applications running from main RAM and
-            # flash for user-provided software packages.
-            exec_profiles = {
-                "COPY_TO_MAIN_RAM" : "0",
-                "EXECUTE_IN_PLACE" : "0"
-            }
-            if "main_ram" in self.soc.mem_regions.keys():
-                exec_profiles["COPY_TO_MAIN_RAM"] = "1"
-            else:
-                exec_profiles["EXECUTE_IN_PLACE"] = "1"
-            for k, v in exec_profiles.items():
                 define(k, v)
             define(
                 "COMPILER_RT_DIRECTORY",
@@ -134,8 +128,11 @@ class Builder:
             export.get_soc_header(self.soc.constants))
         write_to_file(
             os.path.join(self.generated_dir, "csr.h"),
-            export.get_csr_header(self.soc.csr_regions,
-                                         self.soc.constants)
+            export.get_csr_header(
+                regions   = self.soc.csr_regions,
+                constants = self.soc.constants,
+                csr_base  = self.soc.mem_regions['csr'].origin
+            )
         )
         write_to_file(
             os.path.join(self.generated_dir, "git.h"),

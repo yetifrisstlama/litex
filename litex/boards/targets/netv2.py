@@ -3,6 +3,7 @@
 # This file is Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # License: BSD
 
+import os
 import argparse
 
 from migen import *
@@ -13,7 +14,7 @@ from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.soc_sdram import *
 from litex.soc.integration.builder import *
-from litex.soc.integration.soc import *
+from litex.soc.cores.led import LedChaser
 
 from litedram.modules import K4B2G1646F
 from litedram.phy import s7ddrphy
@@ -47,11 +48,14 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(100e6), with_ethernet=False, with_spi_xip=False, **kwargs):
+    def __init__(self, sys_clk_freq=int(100e6), with_ethernet=False, **kwargs):
         platform = netv2.Platform()
 
         # SoCCore ----------------------------------------------------------------------------------
-        SoCCore.__init__(self, platform, clk_freq=sys_clk_freq, **kwargs)
+        SoCCore.__init__(self, platform, sys_clk_freq,
+            ident          = "LiteX SoC on NeTV2",
+            ident_version  = True,
+            **kwargs)
 
         # CRG --------------------------------------------------------------------------------------
         self.submodules.crg = _CRG(platform, sys_clk_freq)
@@ -73,16 +77,6 @@ class BaseSoC(SoCCore):
                 l2_cache_reverse        = True
             )
 
-        # SPI XIP ----------------------------------------------------------------------------------
-        if with_spi_xip:
-            from litespi import LiteSPI
-            from litespi.phy.generic import LiteSPIPHY
-            spi_xip_size = 1024*1024*8
-            self.submodules.spiphy = LiteSPIPHY(platform.request("spiflash4x"))
-            self.submodules.spictl = LiteSPI(phy=self.spiphy, endianness=self.cpu.endianness)
-            spi_xip_region = SoCRegion(origin=self.mem_map.get("spixip", None), size=spi_xip_size, cached=False)
-            self.bus.add_slave(name="spixip", slave=self.spictl.bus, region=spi_xip_region)
-
         # Ethernet ---------------------------------------------------------------------------------
         if with_ethernet:
             self.submodules.ethphy = LiteEthPHYRMII(
@@ -91,22 +85,30 @@ class BaseSoC(SoCCore):
             self.add_csr("ethphy")
             self.add_ethernet(phy=self.ethphy)
 
+        # Leds -------------------------------------------------------------------------------------
+        self.submodules.leds = LedChaser(
+            pads         = platform.request_all("user_led"),
+            sys_clk_freq = sys_clk_freq)
+        self.add_csr("leds")
+
 # Build --------------------------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="LiteX SoC on NeTV2")
+    parser.add_argument("--build", action="store_true", help="Build bitstream")
+    parser.add_argument("--load",  action="store_true", help="Load bitstream")
     builder_args(parser)
     soc_sdram_args(parser)
-    parser.add_argument("--with-ethernet", action="store_true",
-                        help="enable Ethernet support")
-    parser.add_argument("--with-spi-xip", action="store_true",
-                        help="enable SPI XIP support")
+    parser.add_argument("--with-ethernet", action="store_true", help="Enable Ethernet support")
     args = parser.parse_args()
 
-    soc = BaseSoC(with_ethernet=args.with_ethernet, with_spi_xip=args.with_spi_xip, **soc_sdram_argdict(args))
+    soc = BaseSoC(with_ethernet=args.with_ethernet, **soc_sdram_argdict(args))
     builder = Builder(soc, **builder_argdict(args))
-    builder.build()
+    builder.build(run=args.build)
 
+    if args.load:
+        prog = soc.platform.create_programmer()
+        prog.load_bitstream(os.path.join(builder.gateware_dir, soc.build_name + ".bit"))
 
 if __name__ == "__main__":
     main()

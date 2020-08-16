@@ -3,10 +3,15 @@
 
 from litex.build.generic_platform import *
 from litex.build.xilinx import XilinxPlatform, VivadoProgrammer
+from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
 
 _io = [
+    ("clk100", 0, Pins("R4"), IOStandard("LVCMOS33")),
+
+    ("cpu_reset", 0, Pins("G4"), IOStandard("LVCMOS15")),
+
     ("user_led", 0, Pins("T14"), IOStandard("LVCMOS25")),
     ("user_led", 1, Pins("T15"), IOStandard("LVCMOS25")),
     ("user_led", 2, Pins("T16"), IOStandard("LVCMOS25")),
@@ -45,13 +50,41 @@ _io = [
         IOStandard("LVCMOS33")
     ),
 
-    ("clk100", 0, Pins("R4"), IOStandard("LVCMOS33")),
-
-    ("cpu_reset", 0, Pins("G4"), IOStandard("LVCMOS15")),
-
     ("serial", 0,
         Subsignal("tx", Pins("AA19")),
         Subsignal("rx", Pins("V18")),
+        IOStandard("LVCMOS33"),
+    ),
+
+    ("usb_fifo", 0, # Can be used when FT2232H's Channel A configured to ASYNC FIFO 245 mode
+        Subsignal("data",  Pins("U20 P14 P15 U17 R17 P16 R18 N14")),
+        Subsignal("rxf_n", Pins("N17")),
+        Subsignal("txe_n", Pins("Y19")),
+        Subsignal("rd_n",  Pins("P19")),
+        Subsignal("wr_n",  Pins("R19")),
+        Subsignal("siwua", Pins("P17")),
+        Subsignal("oe_n",  Pins("V17")),
+        Misc("SLEW=FAST"),
+        Drive(8),
+        IOStandard("LVCMOS33"),
+    ),
+
+    ("spisdcard", 0,
+        Subsignal("rst",  Pins("V20")),
+        Subsignal("clk",  Pins("W19")),
+        Subsignal("mosi", Pins("W20"), Misc("PULLUP True")),
+        Subsignal("cs_n", Pins("U18"), Misc("PULLUP True")),
+        Subsignal("miso", Pins("V19"), Misc("PULLUP True")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS33"),
+    ),
+
+    ("sdcard", 0,
+        Subsignal("rst",  Pins("V20"),             Misc("PULLUP True")),
+        Subsignal("data", Pins("V19 T21 T20 U18"), Misc("PULLUP True")),
+        Subsignal("cmd",  Pins("W20"),             Misc("PULLUP True")),
+        Subsignal("clk",  Pins("W19")),
+        Misc("SLEW=FAST"),
         IOStandard("LVCMOS33"),
     ),
 
@@ -230,9 +263,8 @@ class Platform(XilinxPlatform):
              "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
         self.add_platform_command("set_property INTERNAL_VREF 0.750 [get_iobanks 35]")
 
-
     def create_programmer(self):
-        return VivadoProgrammer(flash_part="n25q128-3.3v-spi-x1_x2_x4")
+        return OpenOCD("openocd_nexys_video.cfg", "bscan_spi_xc7a200t.bit")
 
     def do_finalize(self, fragment):
         XilinxPlatform.do_finalize(self, fragment)
@@ -240,3 +272,8 @@ class Platform(XilinxPlatform):
             self.add_period_constraint(self.lookup_request("eth_clocks").rx, 1e9/125e6)
         except ConstraintError:
             pass
+
+    def do_finalize(self, fragment):
+        XilinxPlatform.do_finalize(self, fragment)
+        self.add_period_constraint(self.lookup_request("clk100",        loose=True), 1e9/100e6)
+        self.add_period_constraint(self.lookup_request("eth_clocks:rx", loose=True), 1e9/125e6)
