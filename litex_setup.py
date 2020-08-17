@@ -9,11 +9,8 @@ from collections import OrderedDict
 
 import urllib.request
 
-# This is needed for eg: when you are installing from a fork
-LITEX_ROOT_URL = os.getenv("LITEX_ROOT_URL", "http://github.com/yetifrisstlama/")
-LITEOTHER_ROOT_URL = os.getenv("LITEOTHER_ROOT_URL", "http://github.com/enjoy-digital/")
+current_path = os.path.abspath(os.curdir)
 
-current_path = os.path.dirname(os.path.realpath(__file__))
 # Repositories -------------------------------------------------------------------------------------
 
 # name,  (url, recursive clone, develop, sha1)
@@ -27,15 +24,15 @@ repos = [
     ("litex",                           ("https://github.com/enjoy-digital/", False, True, None)),
 
     # LiteX cores ecosystem
-    ("liteeth",      (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litedram",     (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litepcie",     (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litesata",     (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litesdcard",   (LITEOTHER_ROOT_URL, False, True, None)),
-    ("liteiclink",   (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litevideo",    (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litescope",    (LITEOTHER_ROOT_URL, False, True, None)),
-    ("litejesd204b", (LITEX_ROOT_URL, False, True, None)),
+    ("liteeth",      ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litedram",     ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litepcie",     ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litesata",     ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litesdcard",   ("https://github.com/enjoy-digital/", False, True, None)),
+    ("liteiclink",   ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litevideo",    ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litescope",    ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litejesd204b", ("https://github.com/enjoy-digital/", False, True, None)),
     ("litespi",      ("https://github.com/litex-hub/",     False, True, None)),
     ("litehyperbus", ("https://github.com/litex-hub/",     False, True, None)),
 
@@ -158,8 +155,6 @@ if "update" in sys.argv[1:]:
 # Repositories installation
 if "install" in sys.argv[1:]:
     for name in repos.keys():
-        # if name == "litex":
-        #     continue
         os.chdir(os.path.join(current_path))
         url, need_recursive, need_develop, sha1 = repos[name]
         # develop if needed

@@ -1,10 +1,12 @@
 # This file is Copyright (c) 2019-2020 Florent Kermarrec <florent@enjoy-digital.fr>
 # This file is Copyright (c) 2020 Gwenhael Goavec-Merou <gwenhael.goavec-merou@trabucayre.com>
+# This file is Copyright (c) 2020 Michael Betz <michibetz@gmail.com>
 # License: BSD
 
 import os
 
 from migen import *
+from migen.fhdl.specials import Tristate
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
 from litex.soc.interconnect import wishbone
@@ -266,6 +268,69 @@ class Zynq7000(CPU):
             f"o_S_AXI_HP{n}_RDATA"  : axi_hpn.r.data,
         })
         return axi_hpn
+
+    def add_emio_spi(self, spi_pads, n=0):
+        '''
+        Connect a PS SPI interfaces to some IO pads.
+        n selects which one (0 or 1).
+        Make sure to enable the interface in ip/gen_ip.tcl with:
+        CONFIG.PCW_SPI0_PERIPHERAL_ENABLE {1}
+        '''
+        p = spi_pads
+        for s, v in zip(["SCLK", "MOSI", "SS"], [p.clk, p.mosi, p.cs_n]):
+            self.cpu_params["o_SPI{}_{}_O".format(n, s)] = v
+        try:
+            miso = p.miso
+        except AttributeError:
+            print("add_emio_spi(): MISO pin hard-wired to 0")
+            miso = 0
+        self.cpu_params["i_SPI{}_MISO_I".format(n)] = miso
+
+        # ----------------
+        #  unused PS pins
+        # ----------------
+        for s, v in zip(["SCLK", "MOSI", "SS"], [0, 0, 1]):
+            self.cpu_params["i_SPI{}_{}_I".format(n, s)] = v
+        # o_SPI0_SS1_O=
+        # o_SPI0_SS2_O=
+        # o_SPI0_SCLK_T=
+        # o_SPI0_MOSI_T=
+        # o_SPI0_SS_T=
+
+    def add_emio_gpio(self, target_pads, N=32):
+        '''
+        Connect a PS GPIO interfaces to some IO pads.
+        N selects width of GPIO port.
+        Make sure to enable EMIO GPIOs in ip/gen_ip.tcl with:
+        CONFIG.PCW_GPIO_EMIO_GPIO_ENABLE {1} CONFIG.PCW_GPIO_EMIO_GPIO_IO {32}
+        '''
+        GPIO_O = Signal(N)
+        GPIO_T = Signal(N)
+        GPIO_I = Signal(N)
+        self.cpu_params.update(
+            o_GPIO_O=GPIO_O,
+            o_GPIO_T=GPIO_T,
+            i_GPIO_I=GPIO_I
+        )
+        self.specials += Tristate(target_pads, GPIO_O, ~GPIO_T, GPIO_I)
+
+    def add_emio_i2c(self, target_pads, n=0):
+        '''
+        Connect a PS I2C interfaces to some IO pads.
+        n selects which one (0 or 1).
+        Make sure to enable EMIO I2C in ip/gen_ip.tcl with:
+        CONFIG.PCW_I2C0_PERIPHERAL_ENABLE {1}
+        '''
+        for l in ('SDA', 'SCL'):
+            _I = Signal()
+            _O = Signal()
+            _T = Signal()
+            self.cpu_params["i_I2C{}_{}_I".format(n, l)] = _I
+            self.cpu_params["o_I2C{}_{}_O".format(n, l)] = _O
+            self.cpu_params["o_I2C{}_{}_T".format(n, l)] = _T
+            p = getattr(target_pads, l.lower())
+            self.specials += Tristate(p, _O, ~_T, _I)
+
 
     @staticmethod
     def add_sources(platform):

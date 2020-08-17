@@ -220,7 +220,7 @@ class Platform(XilinxPlatform):
         '''
         oled = self.request("zed_oled")
         oled_cs = Signal()
-        soc.ps7_params["o_SPI{}_SS{}_O".format(SPI_N, SS_N)] = oled_cs
+        soc.cpu.cpu_params[f"o_SPI{SPI_N}_SS{SS_N}_O"] = oled_cs
         oled_clk = Signal()
         oled_mosi = Signal()
         soc.comb += [
@@ -232,16 +232,16 @@ class Platform(XilinxPlatform):
                 oled_clk.eq(0),
                 oled_mosi.eq(0)
             ).Else(
-                oled_clk.eq(soc.ps7_params["o_SPI{}_SCLK_O".format(SPI_N)]),
-                oled_mosi.eq(soc.ps7_params["o_SPI{}_MOSI_O".format(SPI_N)]),
+                oled_clk.eq(soc.cpu.cpu_params[f"o_SPI{SPI_N}_SCLK_O"]),
+                oled_mosi.eq(soc.cpu.cpu_params[f"o_SPI{SPI_N}_MOSI_O"]),
             ),
             # Share SPI0 SCLK and MOSI
             oled.clk.eq(oled_clk),
             oled.mosi.eq(oled_mosi),
             # D/C = EMIO62
-            oled.dc.eq(soc.ps7_params["o_GPIO_O"][DC_GPIO]),
+            oled.dc.eq(soc.cpu.cpu_params["o_GPIO_O"][DC_GPIO]),
             # RESET_N = EMIO63
-            oled.reset_n.eq(soc.ps7_params["o_GPIO_O"][RST_GPIO])
+            oled.reset_n.eq(soc.cpu.cpu_params["o_GPIO_O"][RST_GPIO])
         ]
 
     def create_programmer(self, programmer="xc3sprog"):

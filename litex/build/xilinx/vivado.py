@@ -176,7 +176,8 @@ class XilinxVivadoToolchain:
         # Add constraints
         tcl.append("\n# Add constraints\n")
         tcl.append("read_xdc {}.xdc".format(build_name))
-        tcl.append("set_property PROCESSING_ORDER EARLY [get_files {}.xdc]".format(build_name))
+        # next line breaks clock definitions in PS7 IP .xdc file :(
+        # tcl.append("set_property PROCESSING_ORDER EARLY [get_files {}.xdc]".format(build_name))
 
         # Add pre-synthesis commands
         tcl.append("\n# Add pre-synthesis commands\n")
