@@ -913,7 +913,8 @@ class SoC(Module):
 
         # SoC CSR bridge ---------------------------------------------------------------------------
         # FIXME: for now, use registered CSR bridge when SDRAM is present; find the best compromise.
-        self.add_csr_bridge(self.mem_map["csr"], register=hasattr(self, "sdram"))
+        # Alwasy use registered CSR bridge ...
+        self.add_csr_bridge(self.mem_map["csr"], register=True)  # hasattr(self, "sdram"))
 
         # SoC Bus Interconnect ---------------------------------------------------------------------
         if len(self.bus.masters) and len(self.bus.slaves):
