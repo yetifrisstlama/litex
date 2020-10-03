@@ -1,6 +1,9 @@
-# This file is Copyright (c) 2018 Jean-François Nguyen <jf@lambdaconcept.fr>
-# This file is Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
-# License: BSD
+#
+# This file is part of LiteX.
+#
+# Copyright (c) 2018 Jean-François Nguyen <jf@lambdaconcept.fr>
+# Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# SPDX-License-Identifier: BSD-2-Clause
 
 import os
 import subprocess
@@ -100,8 +103,10 @@ class Minerva(CPU):
             cli_params.append("--with-dcache")
         if with_muldiv:
             cli_params.append("--with-muldiv")
+        cli_params.append("generate")
+        cli_params.append("--type=v")
         sdir = get_data_mod("cpu", "minerva").data_location
-        if subprocess.call(["python3", os.path.join(sdir, "cli.py"), *cli_params, "generate"],
+        if subprocess.call(["python3", os.path.join(sdir, "cli.py"), *cli_params],
             stdout=open(verilog_filename, "w")):
             raise OSError("Unable to elaborate Minerva CPU, please check your nMigen/Yosys install")
 

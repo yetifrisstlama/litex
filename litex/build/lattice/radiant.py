@@ -1,6 +1,7 @@
 #
 # This file is part of LiteX.
 #
+# Copyright (c) 2020 David Corrigan <davidcorrigan714@gmail.com>
 # Copyright (c) 2015-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # Copyright (c) 2017-2018 Sergiusz Bazanski <q3k@q3k.org>
 # Copyright (c) 2017 William D. Jones <thor0505@comcast.net>
@@ -21,61 +22,58 @@ from litex.build.generic_platform import *
 from litex.build import tools
 from litex.build.lattice import common
 
-# Helpers ------------------------------------------------------------------------------------------
 
-def _produces_jedec(device):
-    return device.startswith("LCMX")
-
-# Constraints (.lpf) -------------------------------------------------------------------------------
+# Constraints (.ldc) -------------------------------------------------------------------------------
 
 def _format_constraint(c):
     if isinstance(c, Pins):
-        return ("LOCATE COMP ", " SITE " + "\"" + c.identifiers[0] + "\"")
+        return ("ldc_set_location -site {" + c.identifiers[0] + "} [get_ports ","]")
     elif isinstance(c, IOStandard):
-        return ("IOBUF PORT ", " IO_TYPE=" + c.name)
+        return ("ldc_set_port -iobuf {IO_TYPE="+c.name+"} [get_ports ", "]")
     elif isinstance(c, Misc):
-        return ("IOBUF PORT ", " " + c.misc)
+        return ("ldc_set_port -iobuf {"+c.misc+"} [get_ports ", "]" )
 
 
-def _format_lpf(signame, pin, others, resname):
+def _format_ldc(signame, pin, others, resname):
     fmt_c = [_format_constraint(c) for c in ([Pins(pin)] + others)]
-    lpf = []
+    ldc = []
     for pre, suf in fmt_c:
-        lpf.append(pre + "\"" + signame + "\"" + suf + ";")
-    return "\n".join(lpf)
+        ldc.append(pre + signame + suf)
+    return "\n".join(ldc)
 
 
-def _build_lpf(named_sc, named_pc, clocks, vns, build_name):
-    lpf = []
-    lpf.append("BLOCK RESETPATHS;")
-    lpf.append("BLOCK ASYNCPATHS;")
+def _build_pdc(named_sc, named_pc, clocks, vns, build_name):
+    pdc = []
+
     for sig, pins, others, resname in named_sc:
         if len(pins) > 1:
             for i, p in enumerate(pins):
-                lpf.append(_format_lpf(sig + "[" + str(i) + "]", p, others, resname))
+                pdc.append(_format_ldc(sig + "[" + str(i) + "]", p, others, resname))
         else:
-            lpf.append(_format_lpf(sig, pins[0], others, resname))
+            pdc.append(_format_ldc(sig, pins[0], others, resname))
     if named_pc:
-        lpf.append("\n".join(named_pc))
+        pdc.append("\n".join(named_pc))
 
-    # Note: .lpf is only used post-synthesis, Synplify constraints clocks by default to 200MHz.
+    # Note: .pdc is only used post-synthesis, Synplify constraints clocks by default to 200MHz.
     for clk, period in clocks.items():
         clk_name = vns.get_name(clk)
-        lpf.append("FREQUENCY {} \"{}\" {} MHz;".format(
-            "PORT" if clk_name in [name for name, _, _, _ in named_sc] else "NET",
+        pdc.append("create_clock -period {} -name {} [{} {}];".format(
+            str(period),
             clk_name,
-            str(1e3/period)))
+            "get_ports" if clk_name in [name for name, _, _, _ in named_sc] else "get_nets",
+            clk_name
+            ))
 
-    tools.write_to_file(build_name + ".lpf", "\n".join(lpf))
+    tools.write_to_file(build_name + ".pdc", "\n".join(pdc))
 
 # Project (.tcl) -----------------------------------------------------------------------------------
 
-def _build_tcl(device, sources, vincpaths, build_name):
+def _build_tcl(device, sources, vincpaths, build_name, pdc_file):
     tcl = []
     # Create project
     tcl.append(" ".join([
-        "prj_project",
-        "new -name \"{}\"".format(build_name),
+        "prj_create",
+        "-name \"{}\"".format(build_name),
         "-impl \"impl\"",
         "-dev {}".format(device),
         "-synthesis \"synplify\""
@@ -85,29 +83,28 @@ def _build_tcl(device, sources, vincpaths, build_name):
 
     # Add include paths
     vincpath = ";".join(map(lambda x: tcl_path(x), vincpaths))
-    tcl.append("prj_impl option {include path} {\"" + vincpath + "\"}")
+    tcl.append("prj_set_impl_opt {include path} {\"" + vincpath + "\"}")
 
     # Add sources
     for filename, language, library in sources:
-        tcl.append("prj_src add \"{}\" -work {}".format(tcl_path(filename), library))
+        tcl.append("prj_add_source \"{}\" -work {}".format(tcl_path(filename), library))
+
+    tcl.append("prj_add_source \"{}\" -work {}".format(tcl_path(pdc_file), library))
 
     # Set top level
-    tcl.append("prj_impl option top \"{}\"".format(build_name))
+    tcl.append("prj_set_impl_opt top \"{}\"".format(build_name))
 
     # Save project
-    tcl.append("prj_project save")
+    tcl.append("prj_save")
 
     # Build flow
     tcl.append("prj_run Synthesis -impl impl -forceOne")
-    tcl.append("prj_run Translate -impl impl")
     tcl.append("prj_run Map -impl impl")
     tcl.append("prj_run PAR -impl impl")
     tcl.append("prj_run Export -impl impl -task Bitgen")
-    if _produces_jedec(device):
-        tcl.append("prj_run Export -impl impl -task Jedecgen")
 
     # Close project
-    tcl.append("prj_project close")
+    tcl.append("prj_close")
 
     tools.write_to_file(build_name + ".tcl", "\n".join(tcl))
 
@@ -115,27 +112,28 @@ def _build_tcl(device, sources, vincpaths, build_name):
 
 def _build_script(build_name, device):
     if sys.platform in ("win32", "cygwin"):
+        tool = "pnmainc"
         script_ext = ".bat"
         script_contents = "@echo off\nrem Autogenerated by LiteX / git: " + tools.get_litex_git_revision() + "\n\n"
         copy_stmt = "copy"
         fail_stmt = " || exit /b"
     else:
+        tool = "radiantc"
         script_ext = ".sh"
         script_contents = "# Autogenerated by LiteX / git: " + tools.get_litex_git_revision() + "\nset -e\n"
         copy_stmt = "cp"
         fail_stmt = ""
 
-    script_contents += "diamondc {tcl_script}{fail_stmt}\n".format(
+    script_contents += "{tool} {tcl_script}{fail_stmt}\n".format(
+        tool = tool,
         tcl_script = build_name + ".tcl",
         fail_stmt  = fail_stmt)
-    for ext in (".bit", ".jed"):
-        if ext == ".jed" and not _produces_jedec(device):
-            continue
-        script_contents += "{copy_stmt} {diamond_product} {migen_product} {fail_stmt}\n".format(
-            copy_stmt       = copy_stmt,
-            fail_stmt       = fail_stmt,
-            diamond_product = os.path.join("impl", build_name + "_impl" + ext),
-            migen_product   = build_name + ext)
+
+    script_contents += "{copy_stmt} {radiant_product} {migen_product} {fail_stmt}\n".format(
+        copy_stmt       = copy_stmt,
+        fail_stmt       = fail_stmt,
+        radiant_product = os.path.join("impl", build_name + "_impl.bit"),
+        migen_product   = build_name + ".bit")
 
     build_script_file = "build_" + build_name + script_ext
     tools.write_to_file(build_script_file, script_contents, force_unix=False)
@@ -168,7 +166,7 @@ def _check_timing(build_name):
         limit = 1e-8
         setup = m.group(2)
         hold  = m.group(4)
-        # If there were no freq constraints in lpf, ratings will be dashed.
+        # If there were no freq constraints in ldc, ratings will be dashed.
         # results will likely be terribly unreliable, so bail
         assert not setup == hold == "-", "No timing constraints were provided"
         setup, hold = map(float, (setup, hold))
@@ -178,9 +176,9 @@ def _check_timing(build_name):
             return
     raise Exception("Failed to meet timing")
 
-# LatticeDiamondToolchain --------------------------------------------------------------------------
+# LatticeRadiantToolchain --------------------------------------------------------------------------
 
-class LatticeDiamondToolchain:
+class LatticeRadiantToolchain:
     attr_translate = {
         # FIXME: document
         "keep":             ("syn_keep", "true"),
@@ -194,7 +192,7 @@ class LatticeDiamondToolchain:
         "no_shreg_extract": None
     }
 
-    special_overrides = common.lattice_ecp5_special_overrides
+    special_overrides = common.lattice_NX_special_overrides
 
     def __init__(self):
         self.clocks      = {}
@@ -224,11 +222,12 @@ class LatticeDiamondToolchain:
         v_output.write(v_file)
         platform.add_source(v_file)
 
-        # Generate design constraints file (.lpf)
-        _build_lpf(named_sc, named_pc, self.clocks, v_output.ns, build_name)
+        # Generate design constraints file (.pdc)
+        _build_pdc(named_sc, named_pc, self.clocks, v_output.ns, build_name)
+        pdc_file = build_dir + "\\" + build_name + ".pdc"
 
         # Generate design script file (.tcl)
-        _build_tcl(platform.device, platform.sources, platform.verilog_include_paths, build_name)
+        _build_tcl(platform.device, platform.sources, platform.verilog_include_paths, build_name, pdc_file)
 
         # Generate build script
         script = _build_script(build_name, platform.device)

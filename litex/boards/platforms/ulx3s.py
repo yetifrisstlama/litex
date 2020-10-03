@@ -1,5 +1,8 @@
-# This file is Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
-# License: BSD
+#
+# This file is part of LiteX.
+#
+# Copyright (c) 2018-2019 Florent Kermarrec <florent@enjoy-digital.fr>
+# SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
@@ -42,12 +45,7 @@ _io = [
         IOStandard("LVCMOS33"),
     ),
 
-    ("sdram_clock", 0, Pins("F19"),
-        Misc("PULLMODE=NONE"),
-        Misc("DRIVE=4"),
-        Misc("SLEWRATE=FAST"),
-        IOStandard("LVCMOS33")
-    ),
+    ("sdram_clock", 0, Pins("F19"), IOStandard("LVCMOS33")),
     ("sdram", 0,
         Subsignal("a",     Pins(
             "M20 M19 L20 L19 K20 K19 K18 J20",
@@ -62,10 +60,8 @@ _io = [
         Subsignal("cke",   Pins("F20")),
         Subsignal("ba",    Pins("P19 N20")),
         Subsignal("dm",    Pins("U19 E20")),
-        Misc("PULLMODE=NONE"),
-        Misc("DRIVE=4"),
-        Misc("SLEWRATE=FAST"),
         IOStandard("LVCMOS33"),
+        Misc("SLEWRATE=FAST"),
     ),
 
     ("wifi_gpio0", 0, Pins("L2"), IOStandard("LVCMOS33")),
@@ -99,6 +95,17 @@ _io = [
         Subsignal("d_n", Pins("E15")),
         Subsignal("pullup", Pins("B12 C12")),
         IOStandard("LVCMOS33")
+    ),
+    ("oled_spi", 0,
+        Subsignal("clk",  Pins("P4")),
+        Subsignal("mosi", Pins("P3")),
+        IOStandard("LVCMOS33"),
+    ),
+    ("oled_ctl", 0,
+        Subsignal("dc",   Pins("P1")),
+        Subsignal("resn", Pins("P2")),
+        Subsignal("csn",  Pins("N2")),
+        IOStandard("LVCMOS33"),
     ),
 ]
 

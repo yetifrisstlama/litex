@@ -1,7 +1,10 @@
-# This file is Copyright (c) 2019-2020 Florent Kermarrec <florent@enjoy-digital.fr>
-# This file is Copyright (c) 2020 Gwenhael Goavec-Merou <gwenhael.goavec-merou@trabucayre.com>
+#
+# This file is part of LiteX.
+#
+# Copyright (c) 2019-2020 Florent Kermarrec <florent@enjoy-digital.fr>
+# Copyright (c) 2020 Gwenhael Goavec-Merou <gwenhael.goavec-merou@trabucayre.com>
 # This file is Copyright (c) 2020 Michael Betz <michibetz@gmail.com>
-# License: BSD
+# SPDX-License-Identifier: BSD-2-Clause
 
 import os
 

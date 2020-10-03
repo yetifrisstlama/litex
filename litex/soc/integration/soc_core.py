@@ -1,3 +1,6 @@
+#
+# This file is part of LiteX.
+#
 # This file is Copyright (c) 2013-2014 Sebastien Bourdeauducq <sb@m-labs.hk>
 # This file is Copyright (c) 2014-2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # This file is Copyright (c) 2018 Dolu1990 <charles.papon.90@gmail.com>
@@ -10,12 +13,7 @@
 # This file is Copyright (c) 2018-2017 Tim 'mithro' Ansell <me@mith.ro>
 # This file is Copyright (c) 2015 whitequark <whitequark@whitequark.org>
 # This file is Copyright (c) 2014 Yann Sionneau <ys@m-labs.hk>
-# License: BSD
-
-####################################################################################################
-#       DISCLAIMER: Provides retro-compatibility layer for existing SoCCore based designs.
-#     Most of the SoC code has been refactored/improved and is now located in integration/soc.py
-####################################################################################################
+# SPDX-License-Identifier: BSD-2-Clause
 
 import os
 import inspect
@@ -73,6 +71,7 @@ class SoCCore(LiteXSoC):
         cpu_cls                  = None,
         # ROM parameters
         integrated_rom_size      = 0,
+        integrated_rom_mode      = "r",
         integrated_rom_init      = [],
         # SRAM parameters
         integrated_sram_size     = 0x2000,
@@ -163,7 +162,7 @@ class SoCCore(LiteXSoC):
 
         # Add integrated ROM
         if integrated_rom_size:
-            self.add_rom("rom", self.cpu.reset_address, integrated_rom_size, integrated_rom_init)
+            self.add_rom("rom", self.cpu.reset_address, integrated_rom_size, integrated_rom_init, integrated_rom_mode)
 
         # Add integrated SRAM
         if integrated_sram_size:

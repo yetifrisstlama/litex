@@ -24,6 +24,8 @@
 
 #include "sdram.h"
 
+#ifdef CSR_SDRAM_BASE
+
 __attribute__((unused)) static void cdelay(int i)
 {
 #ifndef CONFIG_SIM_DISABLE_DELAYS
@@ -34,147 +36,215 @@ __attribute__((unused)) static void cdelay(int i)
 #endif
 }
 
-#ifdef CSR_SDRAM_BASE
+/*-----------------------------------------------------------------------*/
+/* Constants                                                             */
+/*-----------------------------------------------------------------------*/
 
-#define DFII_ADDR_SHIFT CONFIG_CSR_ALIGNMENT/8
+#ifndef MEMTEST_DATA_SIZE
+#define MEMTEST_DATA_SIZE (2*1024*1024)
+#endif
 
-#define CSR_DATA_BYTES CONFIG_CSR_DATA_WIDTH/8
+#define DFII_PIX_DATA_BYTES DFII_PIX_DATA_SIZE*CONFIG_CSR_DATA_WIDTH/8
 
-#define DFII_PIX_DATA_BYTES DFII_PIX_DATA_SIZE*CSR_DATA_BYTES
-
-int sdrdatabits(void) {
+int sdram_get_databits(void) {
 	return SDRAM_PHY_DATABITS;
 }
 
-int sdrfreq(void) {
+int sdram_get_freq(void) {
 	return SDRAM_PHY_XDR*SDRAM_PHY_PHASES*CONFIG_CLOCK_FREQUENCY;
 }
 
-void sdrsw(void)
-{
-	sdram_dfii_control_write(DFII_CONTROL_CKE|DFII_CONTROL_ODT|DFII_CONTROL_RESET_N);
-	printf("SDRAM now under software control\n");
+int sdram_get_cl(void) {
+#ifdef SDRAM_PHY_CL
+	return SDRAM_PHY_CL;
+#else
+	return -1;
+#endif
 }
 
-void sdrhw(void)
-{
-	sdram_dfii_control_write(DFII_CONTROL_SEL);
-	printf("SDRAM now under hardware control\n");
+int sdram_get_cwl(void) {
+#ifdef SDRAM_PHY_CWL
+	return SDRAM_PHY_CWL;
+#else
+	return -1;
+#endif
 }
 
-void sdrrow(unsigned int row)
-{
-	if(row == 0) {
-		sdram_dfii_pi0_address_write(0x0000);
-		sdram_dfii_pi0_baddress_write(0);
-		command_p0(DFII_COMMAND_RAS|DFII_COMMAND_WE|DFII_COMMAND_CS);
-		cdelay(15);
-	} else {
-		sdram_dfii_pi0_address_write(row);
-		sdram_dfii_pi0_baddress_write(0);
-		command_p0(DFII_COMMAND_RAS|DFII_COMMAND_CS);
-		cdelay(15);
+/*-----------------------------------------------------------------------*/
+/* DFII                                                                  */
+/*-----------------------------------------------------------------------*/
+
+#ifdef CSR_DDRPHY_BASE
+
+static unsigned char sdram_dfii_get_rdphase(void) {
+#ifdef CSR_DDRPHY_RDPHASE_ADDR
+	return ddrphy_rdphase_read();
+#else
+	return SDRAM_PHY_RDPHASE;
+#endif
+}
+
+static unsigned char sdram_dfii_get_wrphase(void) {
+#ifdef CSR_DDRPHY_WRPHASE_ADDR
+	return ddrphy_wrphase_read();
+#else
+	return SDRAM_PHY_WRPHASE;
+#endif
+}
+
+static void sdram_dfii_pix_address_write(unsigned char phase, unsigned int value) {
+	switch (phase) {
+#if (SDRAM_PHY_PHASES > 2)
+	case 3:
+		sdram_dfii_pi3_address_write(value);
+		break;
+	case 2:
+		sdram_dfii_pi2_address_write(value);
+		break;
+#endif
+#if (SDRAM_PHY_PHASES > 1)
+	case 1:
+		sdram_dfii_pi1_address_write(value);
+		break;
+#endif
+	default:
+		sdram_dfii_pi0_address_write(value);
 	}
 }
 
-void sdrrdbuf(int dq)
-{
-	int i, p;
-	int first_byte, step;
-	unsigned char buf[DFII_PIX_DATA_BYTES];
-
-	if(dq < 0) {
-		first_byte = 0;
-		step = 1;
-	} else {
-		first_byte = DFII_PIX_DATA_BYTES/2 - 1 - dq;
-		step = DFII_PIX_DATA_BYTES/2;
-	}
-
-	for(p=0;p<SDRAM_PHY_PHASES;p++) {
-		csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p],
-				 buf, DFII_PIX_DATA_BYTES);
-		for(i=first_byte;i<DFII_PIX_DATA_BYTES;i+=step)
-			printf("%02x", buf[i]);
-	}
-	printf("\n");
+static void sdram_dfii_pird_address_write(unsigned int value) {
+	unsigned char rdphase = sdram_dfii_get_rdphase();
+	sdram_dfii_pix_address_write(rdphase, value);
 }
 
-void sdrrd(unsigned int addr, int dq)
-{
-	sdram_dfii_pird_address_write(addr);
-	sdram_dfii_pird_baddress_write(0);
-	command_prd(DFII_COMMAND_CAS|DFII_COMMAND_CS|DFII_COMMAND_RDDATA);
-	cdelay(15);
-	sdrrdbuf(dq);
+static void sdram_dfii_piwr_address_write(unsigned int value) {
+	unsigned char wrphase = sdram_dfii_get_wrphase();
+	sdram_dfii_pix_address_write(wrphase, value);
 }
 
-void sdrrderr(int count)
-{
-	int addr;
-	int i, j, p;
-	unsigned char prev_data[SDRAM_PHY_PHASES][DFII_PIX_DATA_BYTES];
-	unsigned char errs[SDRAM_PHY_PHASES][DFII_PIX_DATA_BYTES];
-	unsigned char new_data[DFII_PIX_DATA_BYTES];
-
-	for(p=0;p<SDRAM_PHY_PHASES;p++)
-		for(i=0;i<DFII_PIX_DATA_BYTES;i++)
-			errs[p][i] = 0;
-
-	for(addr=0;addr<16;addr++) {
-		sdram_dfii_pird_address_write(addr*8);
-		sdram_dfii_pird_baddress_write(0);
-		command_prd(DFII_COMMAND_CAS|DFII_COMMAND_CS|DFII_COMMAND_RDDATA);
-		cdelay(15);
-		for(p=0;p<SDRAM_PHY_PHASES;p++)
-			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p],
-					 prev_data[p], DFII_PIX_DATA_BYTES);
-
-		for(j=0;j<count;j++) {
-			command_prd(DFII_COMMAND_CAS|DFII_COMMAND_CS|DFII_COMMAND_RDDATA);
-			cdelay(15);
-			for(p=0;p<SDRAM_PHY_PHASES;p++) {
-				csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p],
-						 new_data, DFII_PIX_DATA_BYTES);
-				for(i=0;i<DFII_PIX_DATA_BYTES;i++) {
-					errs[p][i] |= prev_data[p][i] ^ new_data[i];
-					prev_data[p][i] = new_data[i];
-				}
-			}
-		}
+static void sdram_dfii_pix_baddress_write(unsigned char phase, unsigned int value) {
+	switch (phase) {
+#if (SDRAM_PHY_PHASES > 2)
+	case 3:
+		sdram_dfii_pi3_baddress_write(value);
+		break;
+	case 2:
+		sdram_dfii_pi2_baddress_write(value);
+		break;
+#endif
+#if (SDRAM_PHY_PHASES > 1)
+	case 1:
+		sdram_dfii_pi1_baddress_write(value);
+		break;
+#endif
+	default:
+		sdram_dfii_pi0_baddress_write(value);
 	}
-
-	for(p=0;p<SDRAM_PHY_PHASES;p++)
-		for(i=0;i<DFII_PIX_DATA_BYTES;i++)
-			printf("%02x", errs[p][i]);
-	printf("\n");
-	for(p=0;p<SDRAM_PHY_PHASES;p++)
-		for(i=0;i<DFII_PIX_DATA_BYTES;i++)
-			printf("%2x", DFII_PIX_DATA_BYTES/2 - 1 - (i % (DFII_PIX_DATA_BYTES/2)));
-	printf("\n");
 }
 
-void sdrwr(unsigned int addr)
-{
-	int i, p;
-	unsigned char buf[DFII_PIX_DATA_BYTES];
+static void sdram_dfii_pird_baddress_write(unsigned int value) {
+	unsigned char rdphase = sdram_dfii_get_rdphase();
+	sdram_dfii_pix_baddress_write(rdphase, value);
+}
 
-	for(p=0;p<SDRAM_PHY_PHASES;p++) {
-		for(i=0;i<DFII_PIX_DATA_BYTES;i++)
-			buf[i] = 0x10*p + i;
-		csr_wr_buf_uint8(sdram_dfii_pix_wrdata_addr[p],
-				 buf, DFII_PIX_DATA_BYTES);
+static void sdram_dfii_piwr_baddress_write(unsigned int value) {
+	unsigned char wrphase = sdram_dfii_get_wrphase();
+	sdram_dfii_pix_baddress_write(wrphase, value);
+}
+
+static void command_px(unsigned char phase, unsigned int value) {
+	switch (phase) {
+#if (SDRAM_PHY_PHASES > 2)
+	case 3:
+		command_p3(value);
+		break;
+	case 2:
+		command_p2(value);
+		break;
+#endif
+#if (SDRAM_PHY_PHASES > 1)
+	case 1:
+		command_p1(value);
+		break;
+#endif
+	default:
+		command_p0(value);
+	}
+}
+
+static void command_prd(unsigned int value) {
+	unsigned char rdphase = sdram_dfii_get_rdphase();
+	command_px(rdphase, value);
+}
+
+static void command_pwr(unsigned int value) {
+	unsigned char wrphase = sdram_dfii_get_wrphase();
+	command_px(wrphase, value);
+}
+
+#endif
+
+/*-----------------------------------------------------------------------*/
+/* Software/Hardware Control                                             */
+/*-----------------------------------------------------------------------*/
+
+#define DFII_CONTROL_SOFTWARE (DFII_CONTROL_CKE|DFII_CONTROL_ODT|DFII_CONTROL_RESET_N)
+#define DFII_CONTROL_HARDWARE (DFII_CONTROL_SEL)
+
+void sdram_software_control_on(void)
+{
+	unsigned int previous;
+	previous = sdram_dfii_control_read();
+	/* Switch DFII to software control */
+	if (previous != DFII_CONTROL_SOFTWARE) {
+		sdram_dfii_control_write(DFII_CONTROL_SOFTWARE);
+		printf("Switching SDRAM to software control.\n");
 	}
 
-	sdram_dfii_piwr_address_write(addr);
-	sdram_dfii_piwr_baddress_write(0);
-	command_pwr(DFII_COMMAND_CAS|DFII_COMMAND_WE|DFII_COMMAND_CS|DFII_COMMAND_WRDATA);
+#if CSR_DDRPHY_EN_VTC_ADDR
+	/* Disable Voltage/Temperature compensation */
+	ddrphy_en_vtc_write(0);
+#endif
+}
+
+void sdram_software_control_off(void)
+{
+	unsigned int previous;
+	previous = sdram_dfii_control_read();
+	/* Switch DFII to hardware control */
+	if (previous != DFII_CONTROL_HARDWARE) {
+		sdram_dfii_control_write(DFII_CONTROL_HARDWARE);
+		printf("Switching SDRAM to hardware control.\n");
+	}
+#if CSR_DDRPHY_EN_VTC_ADDR
+	/* Enable Voltage/Temperature compensation */
+	ddrphy_en_vtc_write(1);
+#endif
+}
+
+/*-----------------------------------------------------------------------*/
+/*  Mode Register                                                        */
+/*-----------------------------------------------------------------------*/
+
+void sdram_mode_register_write(char reg, int value) {
+	sdram_dfii_pi0_address_write(value);
+	sdram_dfii_pi0_baddress_write(reg);
+	command_p0(DFII_COMMAND_RAS|DFII_COMMAND_CAS|DFII_COMMAND_WE|DFII_COMMAND_CS);
 }
 
 #ifdef CSR_DDRPHY_BASE
 
+/*-----------------------------------------------------------------------*/
+/* Write Leveling                                                        */
+/*-----------------------------------------------------------------------*/
+
 #ifdef SDRAM_PHY_WRITE_LEVELING_CAPABLE
-void sdrwlon(void)
+
+int _sdram_write_leveling_cmd_scan  = 1;
+int _sdram_write_leveling_cmd_delay = 0;
+int _sdram_write_leveling_dat_delays[16];
+
+static void sdram_write_leveling_on(void)
 {
 	sdram_dfii_pi0_address_write(DDRX_MR1 | (1 << 7));
 	sdram_dfii_pi0_baddress_write(1);
@@ -189,7 +259,7 @@ void sdrwlon(void)
 	ddrphy_wlevel_en_write(1);
 }
 
-void sdrwloff(void)
+static void sdram_write_leveling_off(void)
 {
 	sdram_dfii_pi0_address_write(DDRX_MR1);
 	sdram_dfii_pi0_baddress_write(1);
@@ -204,7 +274,38 @@ void sdrwloff(void)
 	ddrphy_wlevel_en_write(0);
 }
 
-static void write_delay_rst(int module) {
+void sdram_write_leveling_rst_cmd_delay(int show) {
+	_sdram_write_leveling_cmd_scan = 1;
+	if (show)
+		printf("Reseting Cmd delay\n");
+}
+
+void sdram_write_leveling_force_cmd_delay(int taps, int show) {
+	_sdram_write_leveling_cmd_scan  = 0;
+	_sdram_write_leveling_cmd_delay = taps;
+	if (show)
+		printf("Forcing Cmd delay to %d taps\n", taps);
+	ddrphy_cdly_rst_write(1);
+	while (taps > 0) {
+		ddrphy_cdly_inc_write(1);
+		cdelay(1000);
+		taps--;
+	}
+}
+
+void sdram_write_leveling_rst_dat_delay(int module, int show) {
+	_sdram_write_leveling_dat_delays[module] = -1;
+	if (show)
+		printf("Reseting Dat delay of module %d\n", module);
+}
+
+void sdram_write_leveling_force_dat_delay(int module, int taps, int show) {
+	_sdram_write_leveling_dat_delays[module] = taps;
+	if (show)
+		printf("Forcing Dat delay of module %d to %d taps\n", module, taps);
+}
+
+static void sdram_write_leveling_rst_delay(int module) {
 #ifdef SDRAM_PHY_WRITE_LEVELING_REINIT
 	int i;
 #endif
@@ -224,7 +325,7 @@ static void write_delay_rst(int module) {
 	ddrphy_dly_sel_write(0);
 }
 
-static void write_delay_inc(int module) {
+static void sdram_write_leveling_inc_delay(int module) {
 	/* sel module */
 	ddrphy_dly_sel_write(1 << module);
 
@@ -236,7 +337,7 @@ static void write_delay_inc(int module) {
 	ddrphy_dly_sel_write(0);
 }
 
-static int write_level_scan(int *delays, int loops, int show)
+static int sdram_write_leveling_scan(int *delays, int loops, int show)
 {
 	int i, j, k;
 
@@ -254,14 +355,14 @@ static int write_level_scan(int *delays, int loops, int show)
 
 	err_ddrphy_wdly = SDRAM_PHY_DELAYS - ddrphy_half_sys8x_taps_read();
 
-	sdrwlon();
+	sdram_write_leveling_on();
 	cdelay(100);
 	for(i=0;i<SDRAM_PHY_MODULES;i++) {
 		if (show)
-			printf("m%d: |", i);
+			printf("  m%d: |", i);
 
 		/* rst delay */
-		write_delay_rst(i);
+		sdram_write_leveling_rst_delay(i);
 
 		/* scan write delay taps */
 		for(j=0;j<err_ddrphy_wdly;j++) {
@@ -274,8 +375,7 @@ static int write_level_scan(int *delays, int loops, int show)
 			for (k=0; k<loops; k++) {
 				ddrphy_wlevel_strobe_write(1);
 				cdelay(10);
-				csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[0],
-						 buf, DFII_PIX_DATA_BYTES);
+				csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[0], buf, DFII_PIX_DATA_BYTES);
 				if (buf[SDRAM_PHY_MODULES-1-i] != 0)
 					one_count++;
 				else
@@ -287,7 +387,7 @@ static int write_level_scan(int *delays, int loops, int show)
 				taps_scan[j] = 0;
 			if (show_iter)
 				printf("%d", taps_scan[j]);
-			write_delay_inc(i);
+			sdram_write_leveling_inc_delay(i);
 			cdelay(10);
 		}
 		if (show)
@@ -317,20 +417,34 @@ static int write_level_scan(int *delays, int loops, int show)
 				}
 			}
 		}
+
+		/* rst delay */
+		sdram_write_leveling_rst_delay(i);
+
+		/* use forced delay if configured */
+		if (_sdram_write_leveling_dat_delays[i] >= 0) {
+			delays[i] = _sdram_write_leveling_dat_delays[i];
+
+			/* configure write delay */
+			for(j=0; j<delays[i]; j++)
+				sdram_write_leveling_inc_delay(i);
 		/* succeed only if the start of a 1s window has been found */
-		if (one_window_best_count > 0 && one_window_best_start > 0) {
+		} else if (one_window_best_count > 0 && one_window_best_start > 0) {
 			delays[i] = one_window_best_start;
 
 			/* configure write delay */
-			write_delay_rst(i);
 			for(j=0; j<delays[i]; j++)
-				write_delay_inc(i);
+				sdram_write_leveling_inc_delay(i);
 		}
-		if (show)
-			printf(" delay: %02d\n", delays[i]);
+		if (show) {
+			if (delays[i] == -1)
+				printf(" delay: -\n");
+			else
+				printf(" delay: %02d\n", delays[i]);
+		}
 	}
 
-	sdrwloff();
+	sdram_write_leveling_off();
 
 	ok = 1;
 	for(i=SDRAM_PHY_MODULES-1;i>=0;i--) {
@@ -341,7 +455,7 @@ static int write_level_scan(int *delays, int loops, int show)
 	return ok;
 }
 
-static void write_level_cdly_range(unsigned int *best_error, int *best_cdly,
+static void sdram_write_leveling_find_cmd_delay(unsigned int *best_error, int *best_cdly,
 		int cdly_start, int cdly_stop, int cdly_step)
 {
 	int cdly;
@@ -359,7 +473,7 @@ static void write_level_cdly_range(unsigned int *best_error, int *best_cdly,
 		}
 
 		/* write level using this delay */
-		if (write_level_scan(delays, 8, 0)) {
+		if (sdram_write_leveling_scan(delays, 8, 0)) {
 			/* use the mean of delays for error calulation */
 			int delay_mean = 0;
 			for (int i=0; i < SDRAM_PHY_MODULES; ++i) {
@@ -384,7 +498,7 @@ static void write_level_cdly_range(unsigned int *best_error, int *best_cdly,
 	}
 }
 
-int write_level(void)
+int sdram_write_leveling(void)
 {
 	int delays[SDRAM_PHY_MODULES];
 	unsigned int best_error = ~0u;
@@ -393,39 +507,44 @@ int write_level(void)
 	int cdly_range_end;
 	int cdly_range_step;
 
-	printf("Command/Clk scan:\n");
 
-	/* Center write leveling by varying cdly. Searching through all possible
-	 * values is slow, but we can use a simple optimization method of iterativly
-	 * scanning smaller ranges with decreasing step */
-	cdly_range_start = 0;
-	cdly_range_end = SDRAM_PHY_DELAYS;
-	if (SDRAM_PHY_DELAYS > 32)
-		cdly_range_step = SDRAM_PHY_DELAYS/8;
-	else
-		cdly_range_step = 1;
-	while (cdly_range_step > 0) {
-		printf("|");
-		write_level_cdly_range(&best_error, &best_cdly,
-				cdly_range_start, cdly_range_end, cdly_range_step);
+	if (_sdram_write_leveling_cmd_scan) {
+		printf("  Cmd/Clk scan:\n");
 
-		/* small optimization - stop if we have zero error */
-		if (best_error == 0)
-			break;
+		/* Center write leveling by varying cdly. Searching through all possible
+		 * values is slow, but we can use a simple optimization method of iterativly
+		 * scanning smaller ranges with decreasing step */
+		cdly_range_start = 0;
+		cdly_range_end = SDRAM_PHY_DELAYS;
+		if (SDRAM_PHY_DELAYS > 32)
+			cdly_range_step = SDRAM_PHY_DELAYS/8;
+		else
+			cdly_range_step = 1;
+		while (cdly_range_step > 0) {
+			printf("  |");
+			sdram_write_leveling_find_cmd_delay(&best_error, &best_cdly,
+					cdly_range_start, cdly_range_end, cdly_range_step);
 
-		/* use best result as the middle of next range */
-		cdly_range_start = best_cdly - cdly_range_step;
-		cdly_range_end = best_cdly + cdly_range_step + 1;
-		if (cdly_range_start < 0)
-			cdly_range_start = 0;
-		if (cdly_range_end > 512)
-			cdly_range_end = 512;
+			/* small optimization - stop if we have zero error */
+			if (best_error == 0)
+				break;
 
-		cdly_range_step /= 4;
+			/* use best result as the middle of next range */
+			cdly_range_start = best_cdly - cdly_range_step;
+			cdly_range_end = best_cdly + cdly_range_step + 1;
+			if (cdly_range_start < 0)
+				cdly_range_start = 0;
+			if (cdly_range_end > 512)
+				cdly_range_end = 512;
+
+			cdly_range_step /= 4;
+		}
+		printf("| best: %d\n", best_cdly);
+	} else {
+		best_cdly = _sdram_write_leveling_cmd_delay;
 	}
-	printf("| best: %d\n", best_cdly);
-
-	/* if we found any working delay then set it */
+	printf("  Setting Cmd/Clk delay to %d taps.\n", best_cdly);
+	/* set working or forced delay */
 	if (best_cdly >= 0) {
 		ddrphy_cdly_rst_write(1);
 		for (int i = 0; i < best_cdly; ++i) {
@@ -434,19 +553,22 @@ int write_level(void)
 		}
 	}
 
-	printf("Data scan:\n");
+	printf("  Data scan:\n");
 
 	/* re-run write leveling the final time */
-	if (!write_level_scan(delays, 128, 1))
+	if (!sdram_write_leveling_scan(delays, 128, 1))
 		return 0;
 
 	return best_cdly >= 0;
 }
 
-
 #endif /*  SDRAM_PHY_WRITE_LEVELING_CAPABLE */
 
-static void read_delay_rst(int module) {
+/*-----------------------------------------------------------------------*/
+/* Read Leveling                                                         */
+/*-----------------------------------------------------------------------*/
+
+static void sdram_read_leveling_rst_delay(int module) {
 	/* sel module */
 	ddrphy_dly_sel_write(1 << module);
 
@@ -463,7 +585,7 @@ static void read_delay_rst(int module) {
 #endif
 }
 
-static void read_delay_inc(int module) {
+static void sdram_read_leveling_inc_delay(int module) {
 	/* sel module */
 	ddrphy_dly_sel_write(1 << module);
 
@@ -480,7 +602,7 @@ static void read_delay_inc(int module) {
 #endif
 }
 
-static void read_bitslip_rst(char m)
+static void sdram_read_leveling_rst_bitslip(char m)
 {
 	/* sel module */
 	ddrphy_dly_sel_write(1 << m);
@@ -493,7 +615,7 @@ static void read_bitslip_rst(char m)
 }
 
 
-static void read_bitslip_inc(char m)
+static void sdram_read_leveling_inc_bitslip(char m)
 {
 	/* sel module */
 	ddrphy_dly_sel_write(1 << m);
@@ -505,7 +627,7 @@ static void read_bitslip_inc(char m)
 	ddrphy_dly_sel_write(0);
 }
 
-static int read_level_scan(int module, int bitslip)
+static int sdram_read_leveling_scan_module(int module, int bitslip)
 {
 	unsigned int prv;
 	unsigned char prs[SDRAM_PHY_PHASES][DFII_PIX_DATA_BYTES];
@@ -529,8 +651,7 @@ static int read_level_scan(int module, int bitslip)
 
 	/* Write test pattern */
 	for(p=0;p<SDRAM_PHY_PHASES;p++)
-		csr_wr_buf_uint8(sdram_dfii_pix_wrdata_addr[p],
-				 prs[p], DFII_PIX_DATA_BYTES);
+		csr_wr_buf_uint8(sdram_dfii_pix_wrdata_addr[p], prs[p], DFII_PIX_DATA_BYTES);
 	sdram_dfii_piwr_address_write(0);
 	sdram_dfii_piwr_baddress_write(0);
 	command_pwr(DFII_COMMAND_CAS|DFII_COMMAND_WE|DFII_COMMAND_CS|DFII_COMMAND_WRDATA);
@@ -540,8 +661,8 @@ static int read_level_scan(int module, int bitslip)
 	sdram_dfii_pird_baddress_write(0);
 	score = 0;
 
-	printf("m%d, b%02d: |", module, bitslip);
-	read_delay_rst(module);
+	printf("  m%d, b%d: |", module, bitslip);
+	sdram_read_leveling_rst_delay(module);
 	for(i=0;i<SDRAM_PHY_DELAYS;i++) {
 		int working = 1;
 		int show = 1;
@@ -555,8 +676,7 @@ static int read_level_scan(int module, int bitslip)
 		cdelay(15);
 		for(p=0;p<SDRAM_PHY_PHASES;p++) {
 			/* read back test pattern */
-			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p],
-					 tst, DFII_PIX_DATA_BYTES);
+			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p], tst, DFII_PIX_DATA_BYTES);
 			/* verify bytes matching current 'module' */
 			if (prs[p][  SDRAM_PHY_MODULES-1-module] != tst[  SDRAM_PHY_MODULES-1-module] ||
 			    prs[p][2*SDRAM_PHY_MODULES-1-module] != tst[2*SDRAM_PHY_MODULES-1-module])
@@ -569,7 +689,7 @@ static int read_level_scan(int module, int bitslip)
 		if (show)
 			printf("%d", working);
 		score += working;
-		read_delay_inc(module);
+		sdram_read_leveling_inc_delay(module);
 	}
 	printf("| ");
 
@@ -582,7 +702,7 @@ static int read_level_scan(int module, int bitslip)
 	return score;
 }
 
-static void read_level(int module)
+static void sdram_read_leveling_module(int module)
 {
 	unsigned int prv;
 	unsigned char prs[SDRAM_PHY_PHASES][DFII_PIX_DATA_BYTES];
@@ -609,8 +729,7 @@ static void read_level(int module)
 
 	/* Write test pattern */
 	for(p=0;p<SDRAM_PHY_PHASES;p++)
-		csr_wr_buf_uint8(sdram_dfii_pix_wrdata_addr[p],
-				 prs[p], DFII_PIX_DATA_BYTES);
+		csr_wr_buf_uint8(sdram_dfii_pix_wrdata_addr[p], prs[p], DFII_PIX_DATA_BYTES);
 	sdram_dfii_piwr_address_write(0);
 	sdram_dfii_piwr_baddress_write(0);
 	command_pwr(DFII_COMMAND_CAS|DFII_COMMAND_WE|DFII_COMMAND_CS|DFII_COMMAND_WRDATA);
@@ -621,7 +740,7 @@ static void read_level(int module)
 
 	/* Find smallest working delay */
 	delay = 0;
-	read_delay_rst(module);
+	sdram_read_leveling_rst_delay(module);
 	while(1) {
 #ifdef SDRAM_PHY_ECP5DDRPHY
 		ddrphy_burstdet_clr_write(1);
@@ -631,8 +750,7 @@ static void read_level(int module)
 		working = 1;
 		for(p=0;p<SDRAM_PHY_PHASES;p++) {
 			/* read back test pattern */
-			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p],
-					 tst, DFII_PIX_DATA_BYTES);
+			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p], tst, DFII_PIX_DATA_BYTES);
 			/* verify bytes matching current 'module' */
 			if (prs[p][  SDRAM_PHY_MODULES-1-module] != tst[  SDRAM_PHY_MODULES-1-module] ||
 			    prs[p][2*SDRAM_PHY_MODULES-1-module] != tst[2*SDRAM_PHY_MODULES-1-module])
@@ -647,7 +765,7 @@ static void read_level(int module)
 		delay++;
 		if(delay >= SDRAM_PHY_DELAYS)
 			break;
-		read_delay_inc(module);
+		sdram_read_leveling_inc_delay(module);
 	}
 	delay_min = delay;
 
@@ -655,11 +773,11 @@ static void read_level(int module)
 #if SDRAM_PHY_DELAYS > 32
 	for(i=0;i<16;i++) {
 		delay += 1;
-		read_delay_inc(module);
+		sdram_read_leveling_inc_delay(module);
 	}
 #else
 	delay++;
-	read_delay_inc(module);
+	sdram_read_leveling_inc_delay(module);
 #endif
 
 	/* Find largest working delay */
@@ -672,8 +790,7 @@ static void read_level(int module)
 		working = 1;
 		for(p=0;p<SDRAM_PHY_PHASES;p++) {
 			/* read back test pattern */
-			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p],
-					 tst, DFII_PIX_DATA_BYTES);
+			csr_rd_buf_uint8(sdram_dfii_pix_rddata_addr[p], tst, DFII_PIX_DATA_BYTES);
 			/* verify bytes matching current 'module' */
 			if (prs[p][  SDRAM_PHY_MODULES-1-module] != tst[  SDRAM_PHY_MODULES-1-module] ||
 			    prs[p][2*SDRAM_PHY_MODULES-1-module] != tst[2*SDRAM_PHY_MODULES-1-module])
@@ -688,7 +805,7 @@ static void read_level(int module)
 		delay++;
 		if(delay >= SDRAM_PHY_DELAYS)
 			break;
-		read_delay_inc(module);
+		sdram_read_leveling_inc_delay(module);
 	}
 	delay_max = delay;
 
@@ -698,9 +815,9 @@ static void read_level(int module)
 		printf("%02d+-%02d", (delay_min+delay_max)/2, (delay_max-delay_min)/2);
 
 	/* Set delay to the middle */
-	read_delay_rst(module);
+	sdram_read_leveling_rst_delay(module);
 	for(i=0;i<(delay_min+delay_max)/2;i++)
-		read_delay_inc(module);
+		sdram_read_leveling_inc_delay(module);
 
 	/* Precharge */
 	sdram_dfii_pi0_address_write(0);
@@ -712,14 +829,11 @@ static void read_level(int module)
 
 #endif /* CSR_SDRAM_BASE */
 
-
-
-
 #ifdef CSR_SDRAM_BASE
 
 #if defined(SDRAM_PHY_WRITE_LEVELING_CAPABLE) || defined(SDRAM_PHY_READ_LEVELING_CAPABLE)
 
-static void read_leveling(void)
+void sdram_read_leveling(void)
 {
 	int module;
 	int bitslip;
@@ -733,8 +847,8 @@ static void read_leveling(void)
 		best_bitslip = 0;
 		for(bitslip=0; bitslip<SDRAM_PHY_BITSLIPS; bitslip++) {
 			/* compute score */
-			score = read_level_scan(module, bitslip);
-			read_level(module);
+			score = sdram_read_leveling_scan_module(module, bitslip);
+			sdram_read_leveling_module(module);
 			printf("\n");
 			if (score > best_score) {
 				best_bitslip = bitslip;
@@ -744,85 +858,104 @@ static void read_leveling(void)
 			if (bitslip == SDRAM_PHY_BITSLIPS-1)
 				break;
 			/* increment bitslip */
-			read_bitslip_inc(module);
+			sdram_read_leveling_inc_bitslip(module);
 		}
 
 		/* select best read window */
-		printf("best: m%d, b%02d ", module, best_bitslip);
-		read_bitslip_rst(module);
+		printf("  best: m%d, b%02d ", module, best_bitslip);
+		sdram_read_leveling_rst_bitslip(module);
 		for (bitslip=0; bitslip<best_bitslip; bitslip++)
-			read_bitslip_inc(module);
+			sdram_read_leveling_inc_bitslip(module);
 
 		/* re-do leveling on best read window*/
-		read_level(module);
+		sdram_read_leveling_module(module);
 		printf("\n");
 	}
 }
 
-int _write_level_cdly_scan = 1;
+/*-----------------------------------------------------------------------*/
+/* Leveling                                                              */
+/*-----------------------------------------------------------------------*/
 
-int sdrlevel(void)
+int sdram_leveling(void)
 {
 	int module;
-	sdrsw();
+	sdram_software_control_on();
 
 	for(module=0; module<SDRAM_PHY_MODULES; module++) {
 #ifdef SDRAM_PHY_WRITE_LEVELING_CAPABLE
-		write_delay_rst(module);
+		sdram_write_leveling_rst_delay(module);
 #endif
-		read_delay_rst(module);
-		read_bitslip_rst(module);
+		sdram_read_leveling_rst_delay(module);
+		sdram_read_leveling_rst_bitslip(module);
 	}
 
 #ifdef SDRAM_PHY_WRITE_LEVELING_CAPABLE
 	printf("Write leveling:\n");
-	if (_write_level_cdly_scan) {
-		write_level();
-	} else {
-		/* use only the current cdly */
-		int delays[SDRAM_PHY_MODULES];
-		write_level_scan(delays, 128, 1);
-	}
+	sdram_write_leveling();
 #endif
 
 #ifdef SDRAM_PHY_READ_LEVELING_CAPABLE
 	printf("Read leveling:\n");
-	read_leveling();
+	sdram_read_leveling();
 #endif
+
+	sdram_software_control_off();
 
 	return 1;
 }
 #endif
 
-int sdrinit(void)
+/*-----------------------------------------------------------------------*/
+/* Initialization                                                        */
+/*-----------------------------------------------------------------------*/
+
+int sdram_init(void)
 {
-	printf("Initializing DRAM @0x%08x...\n", MAIN_RAM_BASE);
+	/* Reset Cmd/Dat delays */
+#ifdef SDRAM_PHY_WRITE_LEVELING_CAPABLE
+	int i;
+	sdram_write_leveling_rst_cmd_delay(0);
+	for (i=0; i<16; i++) sdram_write_leveling_rst_dat_delay(i, 0);
+#endif
+	/* Reset Read/Write phases */
+#ifdef CSR_DDRPHY_RDPHASE_ADDR
+	ddrphy_rdphase_write(SDRAM_PHY_RDPHASE);
+#endif
+#ifdef CSR_DDRPHY_WRPHASE_ADDR
+	ddrphy_wrphase_write(SDRAM_PHY_WRPHASE);
+#endif
+	/* Set Cmd delay if enforced at build time */
+#ifdef SDRAM_PHY_CMD_DELAY
+	_sdram_write_leveling_cmd_scan  = 0;
+	_sdram_write_leveling_cmd_delay = SDRAM_PHY_CMD_DELAY;
+#endif
+	printf("Initializing SDRAM @0x%08x...\n", MAIN_RAM_BASE);
+	sdram_software_control_on();
+#if CSR_DDRPHY_RST_ADDR
+	ddrphy_rst_write(1);
+	cdelay(1000);
+	ddrphy_rst_write(0);
+	cdelay(1000);
+#endif
 
 #ifdef CSR_DDRCTRL_BASE
 	ddrctrl_init_done_write(0);
 	ddrctrl_init_error_write(0);
 #endif
-	sdrsw();
 	init_sequence();
-#ifdef CSR_DDRPHY_BASE
-#if CSR_DDRPHY_EN_VTC_ADDR
-	ddrphy_en_vtc_write(0);
-#endif
 #if defined(SDRAM_PHY_WRITE_LEVELING_CAPABLE) || defined(SDRAM_PHY_READ_LEVELING_CAPABLE)
-	sdrlevel();
+	sdram_leveling();
 #endif
-#if CSR_DDRPHY_EN_VTC_ADDR
-	ddrphy_en_vtc_write(1);
-#endif
-#endif
-	sdrhw();
-	if(!memtest((unsigned int *) MAIN_RAM_BASE, MAIN_RAM_SIZE)) {
+	sdram_software_control_off();
+	if(!memtest((unsigned int *) MAIN_RAM_BASE, MEMTEST_DATA_SIZE)) {
 #ifdef CSR_DDRCTRL_BASE
 		ddrctrl_init_done_write(1);
 		ddrctrl_init_error_write(1);
 #endif
 		return 0;
 	}
+	memspeed((unsigned int *) MAIN_RAM_BASE, MEMTEST_DATA_SIZE, false);
 #ifdef CSR_DDRCTRL_BASE
 	ddrctrl_init_done_write(1);
 #endif
