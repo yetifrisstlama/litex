@@ -111,7 +111,6 @@ void read_handler(int fd, short event, void *arg)
   ssize_t read_len;
   int i, ret;
 
-  // printf("\nread_handler(%d, %d) ", fd, event);
   read_len = read(fd, buffer, 1024);
   if (read_len == 0) {
     // Received EOF, remote has closed the connection
@@ -125,11 +124,9 @@ void read_handler(int fd, short event, void *arg)
   }
   for(i = 0; i < read_len; i++)
   {
-    // printf("%02x ", (uint8_t)buffer[i]);
     s->databuf[(s->data_start +  s->datalen ) % 2048] = buffer[i];
     s->datalen++;
   }
-  // printf("\n");
 }
 
 static void event_handler(int fd, short event, void *arg)
