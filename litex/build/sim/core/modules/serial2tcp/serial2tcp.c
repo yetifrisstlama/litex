@@ -258,9 +258,11 @@ static int serial2tcp_tick(void *sess, uint64_t time_ps)
   if(s->datalen) {
     c = s->databuf[s->data_start];
     *s->rx = c;
-    s->data_start = (s->data_start + 1) % 2048;
-    s->datalen--;
     *s->rx_valid=1;
+    if (*s->rx_ready) {
+      s->data_start = (s->data_start + 1) % 2048;
+      s->datalen--;
+    }
   }
 
 out:
