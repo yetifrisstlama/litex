@@ -245,7 +245,6 @@ class XilinxVivadoToolchain:
         tcl.append("report_drc -file {}_drc.rpt".format(build_name))
         tcl.append("report_timing_summary -datasheet -max_paths 10 -file {}_timing.rpt".format(build_name))
         tcl.append("report_power -file {}_power.rpt".format(build_name))
-        tcl.append('report_methodology -file {}_methodology.rpt'.format(build_name))
         for bitstream_command in self.bitstream_commands:
             tcl.append(bitstream_command.format(build_name=build_name))
 

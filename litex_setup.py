@@ -35,12 +35,12 @@ repos = [
     ("liteiclink",   ("https://github.com/enjoy-digital/", False, True, None)),
     ("litevideo",    ("https://github.com/enjoy-digital/", False, True, None)),
     ("litescope",    ("https://github.com/enjoy-digital/", False, True, None)),
-    ("litejesd204b", ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litejesd204b", ("https://github.com/yetifrisstlama/", False, True, None)),
     ("litespi",      ("https://github.com/litex-hub/",     False, True, None)),
     ("litehyperbus", ("https://github.com/litex-hub/",     False, True, None)),
 
     # LiteX boards support
-    ("litex-boards", ("https://github.com/litex-hub/",     False, True, None)),
+    ("litex-boards", ("https://github.com/yetifrisstlama/",     False, True, None)),
 
     # Optional LiteX data
     ("pythondata-misc-tapcfg",     ("https://github.com/litex-hub/", False, True, None)),

@@ -915,8 +915,7 @@ class SoC(Module):
         }[self.bus.standard]
 
         # SoC CSR bridge ---------------------------------------------------------------------------
-        # FIXME: for now, use registered CSR bridge when SDRAM is present; find the best compromise.
-        # Alwasy use registered CSR bridge ...
+        # Always use registered CSR bridge ... otherwise zed_vvm fails timing
         self.add_csr_bridge(self.mem_map["csr"], register=True)  # hasattr(self, "sdram"))
 
         # SoC Bus Interconnect ---------------------------------------------------------------------
