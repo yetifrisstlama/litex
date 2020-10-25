@@ -3,7 +3,7 @@
 #
 # Copyright (c) 2019-2020 Florent Kermarrec <florent@enjoy-digital.fr>
 # Copyright (c) 2020 Gwenhael Goavec-Merou <gwenhael.goavec-merou@trabucayre.com>
-# This file is Copyright (c) 2020 Michael Betz <michibetz@gmail.com>
+# Copyright (c) 2020 Michael Betz <michibetz@gmail.com>
 # SPDX-License-Identifier: BSD-2-Clause
 
 import os
@@ -35,6 +35,7 @@ class Zynq7000(CPU):
         return {"csr": 0x00000000}
 
     def __init__(self, platform, variant):
+        platform.ps7_cfg    = {}
         self.platform       = platform
         self.reset          = Signal()
         self.periph_buses   = []
@@ -141,6 +142,47 @@ class Zynq7000(CPU):
         if ps7_sdio0_wp_pads is not None:
             self.cpu_params.update(i_SDIO0_WP = ps7_sdio0_wp_pads.wp)
 
+    def gen_ps7_xci(self, force=False):
+        '''
+        To customize Zynq PS configuration, add key value pairs to
+        self.platform.ps7_cfg. Use vivado gui to find valid settings:
+          * open project: `build/ip/zed_ps7.xpr`
+          * open `ps7_cfg` in the project manager
+          * customize Peripheral I/O Pins / Fabric clocks / etc, OK
+          * Generate Output Products: Skip
+          * File, Project, Open Journal File
+          * Copy the lines starting with `set_proerty`, strip the `CONFIG.`
+            from the key and add them to ps7_cfg dict
+
+        TODO better integration with the litex build process
+        '''
+        print('gen_ps7_xci()', self.platform.ps7_cfg)
+        outDir = 'build/ip/'
+        xci_file = outDir + 'zed_ps7.srcs/sources_1/ip/ps7_cfg/ps7_cfg.xci'
+        if os.path.isfile(xci_file) and not force:
+            self.set_ps7_xci(xci_file)
+            return
+
+        tcl_cmds = \
+'''
+create_project zed_ps7 . -part xc7z020clg484-1
+set_property board_part em.avnet.com:zed:part0:1.4 [current_project]
+create_ip -name processing_system7 -vendor xilinx.com -library ip -version 5.5 -module_name ps7_cfg
+set_property -dict [list CONFIG.preset {ZedBoard}] [get_ips ps7_cfg]
+'''
+        if len(self.platform.ps7_cfg) > 0:
+            tcl_cmds += 'set_property -dict [list \\\n'
+            for k, v in self.platform.ps7_cfg.items():
+                tcl_cmds += f'    CONFIG.{k} {{{v}}} \\\n'
+            tcl_cmds += '] [get_ips ps7_cfg]\n'
+        tcl_cmds += 'quit\n'
+
+        os.makedirs('build/ip', exist_ok=True)
+        with open(outDir + 'gen_ip.tcl', 'w') as f:
+            f.write(tcl_cmds)
+        os.system(f'(cd {outDir} && vivado -mode batch -source gen_ip.tcl)')
+        self.set_ps7_xci(xci_file)
+
     def set_ps7_xci(self, ps7_xci):
         self.ps7_xci = ps7_xci
         self.platform.add_ip(ps7_xci)
@@ -161,8 +203,8 @@ class Zynq7000(CPU):
             f"i_M_AXI_GP{n}_AWREADY" : axi_gpn.aw.ready,
             f"o_M_AXI_GP{n}_AWADDR"  : axi_gpn.aw.addr,
             f"o_M_AXI_GP{n}_AWBURST" : axi_gpn.aw.burst,
-            f"o_M_AXI_GP{n}_AWLEN"   : axi_gpn.aw.len,
-            f"o_M_AXI_GP{n}_AWSIZE"  : axi_gpn.aw.size,
+            f"o_M_AXI_GP{n}_AWLEN"   : axi_gpn.aw.len[:4],
+            f"o_M_AXI_GP{n}_AWSIZE"  : axi_gpn.aw.size[:3],
             f"o_M_AXI_GP{n}_AWID"    : axi_gpn.aw.id,
             f"o_M_AXI_GP{n}_AWLOCK"  : axi_gpn.aw.lock,
             f"o_M_AXI_GP{n}_AWPROT"  : axi_gpn.aw.prot,
@@ -188,10 +230,10 @@ class Zynq7000(CPU):
             f"i_M_AXI_GP{n}_ARREADY" : axi_gpn.ar.ready,
             f"o_M_AXI_GP{n}_ARADDR"  : axi_gpn.ar.addr,
             f"o_M_AXI_GP{n}_ARBURST" : axi_gpn.ar.burst,
-            f"o_M_AXI_GP{n}_ARLEN"   : axi_gpn.ar.len,
+            f"o_M_AXI_GP{n}_ARLEN"   : axi_gpn.ar.len[:4],
             f"o_M_AXI_GP{n}_ARID"    : axi_gpn.ar.id,
             f"o_M_AXI_GP{n}_ARLOCK"  : axi_gpn.ar.lock,
-            f"o_M_AXI_GP{n}_ARSIZE"  : axi_gpn.ar.size,
+            f"o_M_AXI_GP{n}_ARSIZE"  : axi_gpn.ar.size[:3],
             f"o_M_AXI_GP{n}_ARPROT"  : axi_gpn.ar.prot,
             f"o_M_AXI_GP{n}_ARCACHE" : axi_gpn.ar.cache,
             f"o_M_AXI_GP{n}_ARQOS"   : axi_gpn.ar.qos,
@@ -276,9 +318,9 @@ class Zynq7000(CPU):
         '''
         Connect a PS SPI interfaces to some IO pads.
         n selects which one (0 or 1).
-        Make sure to enable the interface in ip/gen_ip.tcl with:
-        CONFIG.PCW_SPI0_PERIPHERAL_ENABLE {1}
         '''
+        self.platform.ps7_cfg[f'CONFIG.PCW_SPI{n}_PERIPHERAL_ENABLE'] = '1'
+
         p = spi_pads
         for s, v in zip(["SCLK", "MOSI", "SS"], [p.clk, p.mosi, p.cs_n]):
             self.cpu_params["o_SPI{}_{}_O".format(n, s)] = v
@@ -300,13 +342,16 @@ class Zynq7000(CPU):
         # o_SPI0_MOSI_T=
         # o_SPI0_SS_T=
 
-    def add_emio_gpio(self, target_pads, N=32):
+    def add_emio_gpio(self, target_pads=None, N=32):
         '''
         Connect a PS GPIO interfaces to some IO pads.
         N selects width of GPIO port.
-        Make sure to enable EMIO GPIOs in ip/gen_ip.tcl with:
-        CONFIG.PCW_GPIO_EMIO_GPIO_ENABLE {1} CONFIG.PCW_GPIO_EMIO_GPIO_IO {32}
         '''
+        self.platform.ps7_cfg.update(
+            PCW_GPIO_EMIO_GPIO_ENABLE='1',
+            PCW_GPIO_EMIO_GPIO_IO=str(N)
+        )
+
         GPIO_O = Signal(N)
         GPIO_T = Signal(N)
         GPIO_I = Signal(N)
@@ -315,15 +360,15 @@ class Zynq7000(CPU):
             o_GPIO_T=GPIO_T,
             i_GPIO_I=GPIO_I
         )
-        self.specials += Tristate(target_pads, GPIO_O, ~GPIO_T, GPIO_I)
+        if target_pads:
+            self.specials += Tristate(target_pads, GPIO_O, ~GPIO_T, GPIO_I)
 
     def add_emio_i2c(self, target_pads, n=0):
         '''
         Connect a PS I2C interfaces to some IO pads.
         n selects which one (0 or 1).
-        Make sure to enable EMIO I2C in ip/gen_ip.tcl with:
-        CONFIG.PCW_I2C0_PERIPHERAL_ENABLE {1}
         '''
+        self.platform.ps7_cfg[f'PCW_I2C{n}_PERIPHERAL_ENABLE'] = '1'
         for l in ('SDA', 'SCL'):
             _I = Signal()
             _O = Signal()
@@ -340,6 +385,8 @@ class Zynq7000(CPU):
         platform.add_ip(os.path.join("ip", self.ps7))
 
     def do_finalize(self):
+        if not hasattr(self, "ps7_xci"):
+            self.gen_ps7_xci()
         assert hasattr(self, "ps7_xci")
         ps7_name = os.path.splitext(os.path.basename(self.ps7_xci))[0]
         self.specials += Instance(ps7_name, **self.cpu_params)
