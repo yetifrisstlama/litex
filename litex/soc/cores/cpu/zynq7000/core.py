@@ -142,11 +142,11 @@ class Zynq7000(CPU):
         if ps7_sdio0_wp_pads is not None:
             self.cpu_params.update(i_SDIO0_WP = ps7_sdio0_wp_pads.wp)
 
-    def gen_ps7_xci(self, force=False):
+    def gen_ps7_ip(self, preset='ZedBoard'):
         '''
         To customize Zynq PS configuration, add key value pairs to
         self.platform.ps7_cfg. Use vivado gui to find valid settings:
-          * open project: `build/ip/zed_ps7.xpr`
+          * open project: `build/gateware/*.xpr`
           * open `ps7_cfg` in the project manager
           * customize Peripheral I/O Pins / Fabric clocks / etc, OK
           * Generate Output Products: Skip
@@ -156,39 +156,26 @@ class Zynq7000(CPU):
 
         TODO better integration with the litex build process
         '''
-        print('gen_ps7_xci()', self.platform.ps7_cfg)
-        outDir = 'build/ip/'
-        xci_file = outDir + 'zed_ps7.srcs/sources_1/ip/ps7_cfg/ps7_cfg.xci'
-        if os.path.isfile(xci_file) and not force:
-            self.set_ps7_xci(xci_file)
-            return
+        print('gen_ps7_ip()', self.platform.ps7_cfg)
+        cmds = self.platform.toolchain.pre_synthesis_commands
 
-        tcl_cmds = \
-'''
-create_project zed_ps7 . -part xc7z020clg484-1
-set_property board_part em.avnet.com:zed:part0:1.4 [current_project]
-create_ip -name processing_system7 -vendor xilinx.com -library ip -version 5.5 -module_name ps7_cfg
-set_property -dict [list CONFIG.preset {ZedBoard}] [get_ips ps7_cfg]
-'''
-        if len(self.platform.ps7_cfg) > 0:
-            tcl_cmds += 'set_property -dict [list \\\n'
-            for k, v in self.platform.ps7_cfg.items():
-                tcl_cmds += f'    CONFIG.{k} {{{v}}} \\\n'
-            tcl_cmds += '] [get_ips ps7_cfg]\n'
-        tcl_cmds += 'quit\n'
+        preset = '{{' + preset + '}}'
+        cmds += [
+            'create_ip -name processing_system7 -vendor xilinx.com -library ip -version 5.5 -module_name ps7_cfg',
+            f'set_property -dict [list CONFIG.preset {preset}] [get_ips ps7_cfg]',
+        ]
+        for k, v in self.platform.ps7_cfg.items():
+            v = '{{' + v + '}}'
+            cmds.append(f'set_property CONFIG.{k} {v} [get_ips ps7_cfg]')
 
-        os.makedirs('build/ip', exist_ok=True)
-        with open(outDir + 'gen_ip.tcl', 'w') as f:
-            f.write(tcl_cmds)
-        os.system(f'(cd {outDir} && vivado -mode batch -source gen_ip.tcl)')
-        self.set_ps7_xci(xci_file)
-
-    def set_ps7_xci(self, ps7_xci):
-        self.ps7_xci = ps7_xci
-        self.platform.add_ip(ps7_xci)
+        cmds += [
+            'upgrade_ip [get_ips ps7_cfg]',
+            'generate_target all [get_ips ps7_cfg]',
+            'set_msg_config -id {{Vivado 12-5447}} -new_severity {{Info}}',
+            'synth_ip [get_ips ps7_cfg]'
+        ]
 
     # AXI GP Master --------------------------------------------------------------------------------
-
     def add_axi_gp_master(self):
         assert len(self.axi_gp_masters) < 2
         n       = len(self.axi_gp_masters)
@@ -379,14 +366,10 @@ set_property -dict [list CONFIG.preset {ZedBoard}] [get_ips ps7_cfg]
             p = getattr(target_pads, l.lower())
             self.specials += Tristate(p, _O, ~_T, _I)
 
-
-    @staticmethod
-    def add_sources(platform):
-        platform.add_ip(os.path.join("ip", self.ps7))
+    # @staticmethod
+    # def add_sources(platform):
+    #     platform.add_ip(os.path.join("ip", self.ps7))
 
     def do_finalize(self):
-        if not hasattr(self, "ps7_xci"):
-            self.gen_ps7_xci()
-        assert hasattr(self, "ps7_xci")
-        ps7_name = os.path.splitext(os.path.basename(self.ps7_xci))[0]
-        self.specials += Instance(ps7_name, **self.cpu_params)
+        self.gen_ps7_ip()
+        self.specials += Instance('ps7_cfg', **self.cpu_params)
